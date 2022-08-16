@@ -16,9 +16,8 @@ class LitEngineResNet(pl.LightningModule):
             # works on RGB images
             input_channels = 3
         self.lr = lr
-        self.model = resnet.generate_model(10,
-                                      input_channels=input_channels,
-                                      num_classes=5)
+        self.model = resnet.generate_model(10,num_classes=5,
+                                      input_channels=input_channels)
         self.loss_fn = torch.nn.CrossEntropyLoss()
 
     def print_model(self):
@@ -35,6 +34,7 @@ class LitEngineResNet(pl.LightningModule):
     def training_step(self, train_batch, batch_idx):
         x, y = train_batch # data batch, labels
         z = self.model(x) 
+        print(z)
 
         loss = self.calc_loss( z, y )
         self.log('train_loss', loss)
@@ -47,5 +47,6 @@ class LitEngineResNet(pl.LightningModule):
     def validation_step(self, val_batch, batch_idx):
         x, y = val_batch
         z = self.model(x)
+        print(z)
         loss = self.calc_loss( z, y )
         self.log('val_loss', loss)

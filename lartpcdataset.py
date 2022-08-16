@@ -71,11 +71,11 @@ class SparseToFull(object):
         """
         indices = tensor[:,:-1].T
         values = tensor[:,-1].T
-
-        tensorinput = torch.sparse_coo_tensor(indices, values, imagesize, dtype=torch.float32)
+        tensorinput = torch.sparse_coo_tensor(indices, values, self.imagesize, dtype=torch.float32)
         tensordense = tensorinput.to_dense()
+        denseunsqueeze = torch.unsqueeze(tensordense,dim=0)
         
-        return tensordense
+        return denseunsqueeze
 
     def __repr__(self) -> str:
         return f"{self.__class__.__name__}(Image Size={self.imagesize})"     

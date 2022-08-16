@@ -7,6 +7,8 @@ import torch.nn.functional as F
 
 # Code taken from https://github.com/kenshohara/3D-ResNets-PyTorch
 
+def get_inplanes():
+    return [64, 128, 256, 512]
 
 def conv3x3(in_planes, out_planes, stride=1):
     """3x3 convolution with padding"""
@@ -97,6 +99,7 @@ class ResNet(nn.Module):
     def __init__(self, 
                  block, 
                  layers, 
+                 block_inplanes,
                  num_classes=5, 
                  input_channels=1,
                  conv1_t_size=7,
@@ -110,7 +113,7 @@ class ResNet(nn.Module):
         self.in_planes = block_inplanes[0]
         self.no_max_pool = no_max_pool
         
-                self.conv1 = nn.Conv3d(n_input_channels,
+        self.conv1 = nn.Conv3d(input_channels,
                                self.in_planes,
                                kernel_size=(conv1_t_size, 7, 7),
                                stride=(conv1_t_stride, 2, 2),
@@ -138,7 +141,8 @@ class ResNet(nn.Module):
                                        stride=2)
 
         self.avgpool = nn.AdaptiveAvgPool3d((1, 1, 1))
-        self.fc = nn.Linear(block_inplanes[3] * block.expansion, n_classes)
+        self.fc = nn.Linear(block_inplanes[3] * block.expansion, num_classes)
+        self.fctest = nn.Linear(512**3, num_classes)
 
         for m in self.modules():
             if isinstance(m, nn.Conv3d):
@@ -169,7 +173,7 @@ class ResNet(nn.Module):
                                      stride=stride)
             else:
                 downsample = nn.Sequential(
-                    conv1x1x1(self.in_planes, planes * block.expansion, stride),
+                    conv1x1(self.in_planes, planes * block.expansion, stride),
                     nn.BatchNorm3d(planes * block.expansion))
 
         layers = []
@@ -181,7 +185,13 @@ class ResNet(nn.Module):
         return nn.Sequential(*layers)
 
     def forward(self, x):
-
+        #print(x.size())
+        x = torch.flatten(x,start_dim=2)
+        #print(x.size())
+        x = self.fctest(x)
+        x = x.permute(0,2,1).squeeze(-1).softmax(dim=1)
+        return x
+        
         x = self.conv1(x)
         x = self.bn1(x)
         x = self.relu(x)
