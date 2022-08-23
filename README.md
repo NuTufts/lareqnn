@@ -1,2 +1,2 @@
-# lar-e3nn
-e3nn applied to LAr neutrino data.
+# lareqnn
+Equivariant Neural Networks applied to LAr neutrino data.
