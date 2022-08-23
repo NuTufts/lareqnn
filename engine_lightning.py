@@ -3,19 +3,22 @@ from torch import nn
 from torch.nn import functional as F
 from torch.utils.data import DataLoader
 from torch.utils.data import random_split
-from torchvision import transforms
+import torchmetrics
 import resnet
 import pytorch_lightning as pl
 
 class LitEngineResNet(pl.LightningModule):
-    def __init__(self,pretrained=False,lr=5.0e-3):
+    def __init__(self,pretrained=False,lr=1.0e-3, batch_size = 2):
         super().__init__()
         #self.wandb
         input_channels = 1
         if pretrained:
             # works on RGB images
-            input_channels = 3
+            input_channels = 1
         self.lr = lr
+        self.batch_size = batch_size
+        self.train_acc = torchmetrics.Accuracy()
+        self.valid_acc = torchmetrics.Accuracy()
         self.model = resnet.generate_model(10,num_classes=5,
                                       input_channels=input_channels)
         self.loss_fn = torch.nn.CrossEntropyLoss()
@@ -34,11 +37,15 @@ class LitEngineResNet(pl.LightningModule):
     def training_step(self, train_batch, batch_idx):
         x, y = train_batch # data batch, labels
         z = self.model(x) 
-        print(z)
-
         loss = self.calc_loss( z, y )
         self.log('train_loss', loss)
-        return loss
+        return {'loss': loss, 'preds': z, 'target': y}
+
+    def training_step_end(self, outputs):
+        # update and log
+        self.train_acc(outputs['preds'], outputs['target'])
+        self.log('train_acc', self.train_acc)
+        return outputs['loss'].sum()/2
 
     def calc_loss( self, pred, labels ):
         loss = self.loss_fn( pred, labels )
@@ -47,6 +54,10 @@ class LitEngineResNet(pl.LightningModule):
     def validation_step(self, val_batch, batch_idx):
         x, y = val_batch
         z = self.model(x)
-        print(z)
         loss = self.calc_loss( z, y )
         self.log('val_loss', loss)
+        return {'loss': loss, 'preds': z, 'target': y}
+        
+    def validation_step_end(self, outputs):
+        self.valid_acc(outputs['preds'], outputs['target'])
+        self.log('valid_acc', self.valid_acc)

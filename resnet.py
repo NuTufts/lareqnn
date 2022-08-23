@@ -185,13 +185,6 @@ class ResNet(nn.Module):
         return nn.Sequential(*layers)
 
     def forward(self, x):
-        #print(x.size())
-        x = torch.flatten(x,start_dim=2)
-        #print(x.size())
-        x = self.fctest(x)
-        x = x.permute(0,2,1).squeeze(-1).softmax(dim=1)
-        return x
-        
         x = self.conv1(x)
         x = self.bn1(x)
         x = self.relu(x)
@@ -204,10 +197,9 @@ class ResNet(nn.Module):
         x = self.layer4(x)
 
         x = self.avgpool(x)
-        x = self.dropout(x)
-        #print "avepool: ",x.data.shape
+        #print("avepool: ",x.data.shape)
         x = x.view(x.size(0), -1)
-        #print "view: ",x.data.shape
+        #print ("view: ",x.data.shape)
         x = self.fc(x)
 
         return x

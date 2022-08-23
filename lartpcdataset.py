@@ -81,6 +81,37 @@ class SparseToFull(object):
         return f"{self.__class__.__name__}(Image Size={self.imagesize})"     
     
     
+class AddNoise(object):
+    """Addes gaussian noise to the data
+
+    Args:
+        noise_mean (float): mean of noise to be added
+        noise_std (float): std of noise to be added
+    """
+
+    def __init__(self, noise_mean = 0.0, noise_std = 0.1):
+        super().__init__()
+        assert isinstance(noise_mean,float)
+        assert isinstance(noise_std,float)
+        self.noise_mean = noise_mean
+        self.noise_std = noise_std
+
+    def __call__(self, tensor):
+        """
+        Args:
+            tensor to add noise to
+
+        Returns:
+            Tensor: tensor with noise
+        """
+        noise = torch.normal(self.noise_mean,self.noise_std, size = tensor.shape)
+
+        return tensor+noise
+
+    def __repr__(self) -> str:
+        return f"{self.__class__.__name__}(Noise mean={self.noise_mean}, Noise std={self.noise_std})"        
+    
+    
 class ToSingle(object):
     """Change datatype to single precision (float32).
 
