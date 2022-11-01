@@ -4,6 +4,8 @@ import torch
 import torchvision
 import torchvision.datasets
 import torchvision.transforms as tranforms
+import MinkowskiEngine as ME
+from typing import Any, Callable, cast, Dict, List, Optional, Tuple
 
 class lartpcDataset( torchvision.datasets.DatasetFolder ):
     CLASSNAMES = ["electron","gamma","muon","proton","pion"]
@@ -19,7 +21,8 @@ class lartpcDataset( torchvision.datasets.DatasetFolder ):
                  norm = True, clip = False,
                  norm_mean = 0.1131, norm_std = 0.2687, 
                  clip_min = 6.0, clip_max = 10.0,
-                 transform = None):
+                 transform = None, sparse = True, 
+                 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")):
         
         super().__init__( root=root, loader=lartpcDataset.load_data, extensions=extensions, transform = transform)
         
@@ -30,11 +33,14 @@ class lartpcDataset( torchvision.datasets.DatasetFolder ):
         lartpcDataset.NORM_STD = norm_std
         lartpcDataset.CLIP_MIN = clip_min
         lartpcDataset.CLIP_MAX = clip_max
+        lartpcDataset.SPARSE = sparse
+        lartpcDataset.device = device
 
     def load_data(inp):
         #print("lartpcDataset.load_data: path=",inp)
         with open(inp, 'rb') as f:
             npin = np.load(f)
+            #npin = np.expand_dims(npin,axis=0)
             
         if lartpcDataset.NORM:
             npin[:,-1] -= lartpcDataset.NORM_MEAN
@@ -46,6 +52,29 @@ class lartpcDataset( torchvision.datasets.DatasetFolder ):
                     lartpcDataset.CLIP_MAX, out = npin[:,-1])
             
         return npin
+    
+    def __getitem__(self, index: int) -> Tuple[Any, Any]:
+        """
+        Args:
+            index (int): Index
+
+        Returns:
+            tuple: (sample, target) where target is class_index of the target class.
+        """
+        path, target = self.samples[index]
+        sample = self.loader(path)
+        if self.transform is not None:
+            sample = self.transform(sample)
+        if self.target_transform is not None:
+            target = self.target_transform(target)
+        if self.SPARSE:
+            coords = torch.from_numpy(sample[:,:-1])
+            feat = torch.from_numpy(sample[:,-1])
+            label = torch.tensor([target])
+            return coords, feat, label
+
+        else:
+            return sample, target
     
 
 class SparseToFull(object):
@@ -87,14 +116,16 @@ class AddNoise(object):
     Args:
         noise_mean (float): mean of noise to be added
         noise_std (float): std of noise to be added
+        full (bool): true if data is not in sparse form
     """
 
-    def __init__(self, noise_mean = 0.0, noise_std = 0.1):
+    def __init__(self, noise_mean = 0.0, noise_std = 0.1, full = False):
         super().__init__()
         assert isinstance(noise_mean,float)
         assert isinstance(noise_std,float)
         self.noise_mean = noise_mean
         self.noise_std = noise_std
+        self.full = full
 
     def __call__(self, tensor):
         """
@@ -104,12 +135,19 @@ class AddNoise(object):
         Returns:
             Tensor: tensor with noise
         """
-        noise = torch.normal(self.noise_mean,self.noise_std, size = tensor.shape)
+        if self.full:
+            noise = torch.normal(self.noise_mean,self.noise_std, size = tensor.shape)
 
-        return tensor+noise
+            return tensor+noise
 
+        else:
+            noise = torch.normal(self.noise_mean,self.noise_std, size = tensor.shape[0])
+            return tensor[:,-1] + noise
+        
     def __repr__(self) -> str:
-        return f"{self.__class__.__name__}(Noise mean={self.noise_mean}, Noise std={self.noise_std})"        
+        return f"{self.__class__.__name__}(Noise mean={self.noise_mean}, Noise std={self.noise_std})"    
+    
+    
     
     
 class ToSingle(object):
@@ -142,13 +180,14 @@ if __name__ == "__main__":
     a quick test program
     """
     import torch
-    
-    data = lartpcDataset(root="../data3d",transform=transforms.Compose([
-        SparseToFull()
-    ]))
+    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+    data = lartpcDataset(root="../data3d",device=device)
+#                          ,transform=transforms.Compose([
+#     ]))
     test_loader = torch.utils.data.DataLoader(
         dataset=data,
         batch_size=4,
+        collate_fn = ME.utils.batch_sparse_collate,
         shuffle=True)
     
     it = iter(test_loader)

@@ -4,43 +4,35 @@ import pytorch_lightning as pl
 from argparse import ArgumentParser
 from pytorch_lightning.loggers import WandbLogger
 import gc
+import MinkowskiEngine as ME
+import MEresnet
 
 from engine_lightning import LitEngineResNet
 from lartpcdataset import lartpcDataset, SparseToFull
 if __name__ == '__main__':
-    wandb_logger = WandbLogger(project='lar-e3nn-base')
+    wandb_logger = WandbLogger(project='lar-e3nn-sparse')
 
     pl.seed_everything(42, workers=True)
 
     DEVICE = torch.device("cuda")
     #DEVICE = torch.device("cpu")
 
-    BATCHSIZE=2
+    BATCHSIZE=16
 
     # data
     data_transform = transforms.Compose([
-            SparseToFull()
+#             SparseToFull()
     ])
 
-    dataset = lartpcDataset( root="../data3d",transform=data_transform)
+    dataset = lartpcDataset( root="../data3d",transform=data_transform,device = DEVICE)
     train_dataset, valid_dataset = torch.utils.data.random_split(dataset,[450,50])
 
-    train_loader = torch.utils.data.DataLoader(
-        dataset=train_dataset,
-        batch_size=BATCHSIZE,
-        shuffle=True,
-        num_workers=8, 
-        pin_memory=True)
-    val_loader = torch.utils.data.DataLoader(
-        dataset=valid_dataset,
-        batch_size=BATCHSIZE,
-        shuffle=False,
-        num_workers=8, 
-        pin_memory=True)
 
 
+    
+    
     # model
-    model = LitEngineResNet()
+    model = LitEngineResNet(batch_size=BATCHSIZE, train_dataset=train_dataset, val_dataset=valid_dataset)
     model.print_model()
     model = model
     
@@ -63,9 +55,9 @@ if __name__ == '__main__':
     
     
     trainer = pl.Trainer(gpus=2,
-                         strategy='dp',
+                         strategy='ddp',
                          precision=16,
-                         accumulate_grad_batches=8,
+                         accumulate_grad_batches=1,
                          #deterministic=True,
                          limit_train_batches=5,
                          logger=wandb_logger, 
@@ -73,4 +65,4 @@ if __name__ == '__main__':
                          max_epochs=500,
                          log_every_n_steps=1)
     
-    trainer.fit(model, train_loader, val_loader)
+    trainer.fit(model)
