@@ -7,8 +7,8 @@ import gc
 import MinkowskiEngine as ME
 import MEresnet
 
-from engine_lightning import LitEngineResNet
-from lartpcdataset import lartpcDataset, SparseToFull
+from engine_lightning import LitEngineResNet, LitEngineResNetSparse
+from lartpcdataset import lartpcDataset, lartpcDatasetSparse, SparseToFull
 if __name__ == '__main__':
     wandb_logger = WandbLogger(project='lar-e3nn-sparse')
 
@@ -17,14 +17,19 @@ if __name__ == '__main__':
     DEVICE = torch.device("cuda")
     #DEVICE = torch.device("cpu")
 
-    BATCHSIZE=16
+    BATCHSIZE=4
+    sparse = False
+    
+    if sparse:
+        data_transform = transforms.Compose([
+        ])
+        dataset = lartpcDatasetSparse( root="../PilarDataTest",transform=data_transform,device = DEVICE)
+    else:
+        data_transform = transforms.Compose([
+             SparseToFull()
+        ])
+        dataset = lartpcDataset( root="../PilarDataTest",transform=data_transform,device = DEVICE)
 
-    # data
-    data_transform = transforms.Compose([
-#             SparseToFull()
-    ])
-
-    dataset = lartpcDataset( root="../PilarDataTest",transform=data_transform,device = DEVICE)
     train_dataset, valid_dataset = torch.utils.data.random_split(dataset,[round(0.8*len(dataset)),round(0.2*len(dataset))])
 
 
@@ -32,7 +37,11 @@ if __name__ == '__main__':
     
     
     # model
-    model = LitEngineResNetSparse(batch_size=BATCHSIZE, train_dataset=train_dataset, val_dataset=valid_dataset)
+    if sparse:
+        model = LitEngineResNetSparse(batch_size=BATCHSIZE, train_dataset=train_dataset, val_dataset=valid_dataset)
+    else:
+        model = LitEngineResNet(batch_size=BATCHSIZE, train_dataset=train_dataset, val_dataset=valid_dataset,pin_memory=False)
+    
     model.print_model()
     model = model
     
@@ -67,6 +76,7 @@ if __name__ == '__main__':
                          gradient_clip_val=0.5,
                          overfit_batches=1)
     
-    ME.MinkowskiSyncBatchNorm.convert_sync_batchnorm(model)
+    if sparse:
+        ME.MinkowskiSyncBatchNorm.convert_sync_batchnorm(model)
     
     trainer.fit(model)

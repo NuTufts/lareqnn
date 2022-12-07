@@ -4,9 +4,9 @@ from torch.nn import functional as F
 from torch.utils.data import DataLoader
 from torch.utils.data import random_split
 import torchmetrics
-#import resnet
 import pytorch_lightning as pl
 import MEresnet
+import resnetbase
 import MinkowskiEngine as ME
 import wandb
 
@@ -16,9 +16,9 @@ class LitEngineResNetSparse(pl.LightningModule):
         train_dataset,
         val_dataset,
         pretrained=False,
+        pin_memory = True,
         lr=5.0e-4, 
         batch_size = 4, 
-        sparse = True,
         input_channels = 1,
         class_names = ["electron","gamma","muon","proton","pion"],
         train_acc = torchmetrics.Accuracy(task='multiclass',num_classes=5),
@@ -31,11 +31,7 @@ class LitEngineResNetSparse(pl.LightningModule):
             if name != "self":
                 setattr(self, name, value)
         #self.wandb
-        if self.sparse:
-            self.model = MEresnet.ResNet14(in_channels=1, out_channels=5, D=3)
-        #else:    
-        #    self.model = resnet.generate_model(10,num_classes=5,
-        #                              input_channels=input_channels)
+        self.model = MEresnet.ResNet14(in_channels=1, out_channels=5, D=3)
         self.loss_fn = torch.nn.CrossEntropyLoss()
         
 
@@ -57,7 +53,7 @@ class LitEngineResNetSparse(pl.LightningModule):
         shuffle=True,
         collate_fn = ME.utils.batch_sparse_collate,
         num_workers=8,
-        pin_memory=True)
+        pin_memory=self.pin_memory)
     
     def val_dataloader(self):
         return torch.utils.data.DataLoader(
@@ -66,7 +62,7 @@ class LitEngineResNetSparse(pl.LightningModule):
         collate_fn = ME.utils.batch_sparse_collate,
         shuffle=False,
         num_workers=8,
-        pin_memory=True)
+        pin_memory=self.pin_memory)
     
     def calc_loss( self, pred, labels ):
         loss = self.loss_fn( pred, labels )
@@ -108,5 +104,86 @@ class LitEngineResNetSparse(pl.LightningModule):
         
 #     def validation_epoch_end(self, outputs):
 
+
+class LitEngineResNet(pl.LightningModule):
+    def __init__(
+        self,
+        train_dataset,
+        val_dataset,
+        pin_memory = True,
+        pretrained=False,
+        lr=5.0e-4, 
+        batch_size = 4, 
+        input_channels = 1,
+        class_names = ["electron","gamma","muon","proton","pion"],
+        train_acc = torchmetrics.Accuracy(task='multiclass',num_classes=5),
+        valid_acc = torchmetrics.Accuracy(task='multiclass',num_classes=5)
+    
+    ):
+        
+        super().__init__()
+        for name, value in vars().items():
+            if name != "self":
+                setattr(self, name, value)
+        self.model = resnetbase.generate_model(10,num_classes=5,
+                                      input_channels=input_channels)
+        self.loss_fn = torch.nn.CrossEntropyLoss()
+
+    def print_model(self):
+        print(self.model)
+        
+    def forward(self,x):
+        print(x)
+        assert 0
+        embedding = self.model(x)
+        return embedding
+    
+    def train_dataloader(self):
+        return torch.utils.data.DataLoader(
+        dataset=self.train_dataset,
+        batch_size=self.batch_size,
+        shuffle=True,
+        num_workers=8,
+        pin_memory=self.pin_memory)
+    
+    def val_dataloader(self):
+        return torch.utils.data.DataLoader(
+        dataset=self.val_dataset,
+        batch_size=self.batch_size,
+        shuffle=False,
+        num_workers=8,
+        pin_memory=self.pin_memory)
+
+    def configure_optimizers(self):
+        optimizer = torch.optim.AdamW(self.parameters(), lr=self.lr)
+        return optimizer
+
+    def training_step(self, train_batch, batch_idx):
+        x, y = train_batch # data batch, labels
+        z = self.model(x) 
+        loss = self.calc_loss( z, y )
+        self.log('train_loss', loss)
+        return {'loss': loss, 'preds': z, 'target': y}
+
+    def training_step_end(self, outputs):
+        # update and log
+        self.train_acc(outputs['preds'], outputs['target'])
+        self.log('train_acc', self.train_acc)
+        return torch.mean(outputs['loss'])
+
+    def calc_loss( self, pred, labels ):
+        loss = self.loss_fn( pred, labels )
+        return loss
+
+    def validation_step(self, val_batch, batch_idx):
+        x, y = val_batch
+        z = self.model(x)
+        loss = self.calc_loss( z, y )
+        self.log('val_loss', loss)
+        return {'loss': loss, 'preds': z, 'target': y}
+        
+    def validation_step_end(self, outputs):
+        self.valid_acc(outputs['preds'], outputs['target'])
+        self.log('valid_acc', self.valid_acc)
 
         
