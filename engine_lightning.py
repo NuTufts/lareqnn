@@ -8,20 +8,21 @@ import torchmetrics
 import pytorch_lightning as pl
 import MEresnet
 import MinkowskiEngine as ME
+import wandb
 
-class LitEngineResNet(pl.LightningModule):
+class LitEngineResNetSparse(pl.LightningModule):
     def __init__(
         self,
         train_dataset,
         val_dataset,
         pretrained=False,
-        lr=1.0e-3, 
+        lr=5.0e-4, 
         batch_size = 4, 
         sparse = True,
         input_channels = 1,
         class_names = ["electron","gamma","muon","proton","pion"],
-        train_acc = torchmetrics.Accuracy(num_classes=5),
-        valid_acc = torchmetrics.Accuracy(num_classes=5)
+        train_acc = torchmetrics.Accuracy(task='multiclass',num_classes=5),
+        valid_acc = torchmetrics.Accuracy(task='multiclass',num_classes=5)
     
     ):
         
@@ -32,10 +33,11 @@ class LitEngineResNet(pl.LightningModule):
         #self.wandb
         if self.sparse:
             self.model = MEresnet.ResNet14(in_channels=1, out_channels=5, D=3)
-        else:    
-            self.model = resnet.generate_model(10,num_classes=5,
-                                      input_channels=input_channels)
+        #else:    
+        #    self.model = resnet.generate_model(10,num_classes=5,
+        #                              input_channels=input_channels)
         self.loss_fn = torch.nn.CrossEntropyLoss()
+        
 
     def print_model(self):
         print(self.model)
@@ -54,7 +56,7 @@ class LitEngineResNet(pl.LightningModule):
         batch_size=self.batch_size,
         shuffle=True,
         collate_fn = ME.utils.batch_sparse_collate,
-        num_workers=8, 
+        num_workers=8,
         pin_memory=True)
     
     def val_dataloader(self):
@@ -63,9 +65,12 @@ class LitEngineResNet(pl.LightningModule):
         batch_size=self.batch_size,
         collate_fn = ME.utils.batch_sparse_collate,
         shuffle=False,
-        num_workers=8, 
+        num_workers=8,
         pin_memory=True)
     
+    def calc_loss( self, pred, labels ):
+        loss = self.loss_fn( pred, labels )
+        return loss
     
     
     def training_step(self, train_batch, batch_idx):
@@ -73,33 +78,35 @@ class LitEngineResNet(pl.LightningModule):
         stensor = ME.SparseTensor(coordinates=coords, features=feats.unsqueeze(dim=-1).float())
         z = self.model(stensor) 
         loss = self.calc_loss( z.F, labels.long() )
-        self.log('train_loss', loss, sync_dist=True)
-        self.train_acc(z.F, labels.long())
-        #trainacclog = {classn:self.train_acc[i] for i, classn in enumerate(self.class_names)}
-        self.log('train_acc', self.train_acc , on_step=False, on_epoch=True)
+        self.log('train_loss', loss, sync_dist=True, on_step=True, on_epoch=True, batch_size=self.batch_size)
         if self.global_step % 10 == 0:
             torch.cuda.empty_cache()
-        return loss
+        return {'loss': loss, 'preds': z.F, 'target': labels.long()}
 
     def training_step_end(self, outputs):
-        return #outputs['loss'].sum()#/len(outputs['loss'])
+        self.train_acc(outputs['preds'], outputs['target'])
+        self.log('train_acc',self.train_acc, on_step=True, on_epoch=True)
+        #self.log({"train_conf_mat" : wandb.plot.confusion_matrix(preds=outputs['preds'].argmax(axis=1).detach().cpu().numpy(), y_true=outputs['target'].detach().cpu().numpy(), class_names=self.class_names)})
+        return torch.mean(outputs['loss'])
+    
+    #def training_epoch_end(self, outputs):
 
-    def calc_loss( self, pred, labels ):
-        loss = self.loss_fn( pred, labels )
-        return loss
+    
 
     def validation_step(self, val_batch, batch_idx):
         coords, feats, labels = val_batch
         stensor = ME.SparseTensor(coordinates=coords, features=feats.unsqueeze(dim=-1).float())
         z = self.model(stensor) 
         loss = self.calc_loss( z.F, labels.long() )
-        self.log('val_loss', loss, sync_dist=True)
-        self.valid_acc(z.F, labels.long())
-        #valacclog = {classn:self.valid_acc[i] for i, classn in enumerate(self.class_names)}
-        self.log('val_acc', self.valid_acc, on_step=False, on_epoch=True)
-        return loss
+        self.log('val_loss', loss, batch_size=self.batch_size,on_step=True, on_epoch=True)
+        return {'loss': loss, 'preds': z.F, 'target': labels.long()}
         
     def validation_step_end(self, outputs):
-        return
-        #self.valid_acc(outputs['preds'], outputs['target'])
-        #self.log('valid_acc', self.valid_acc)
+        self.valid_acc(outputs['preds'], outputs['target'])
+        self.log('valid_acc',self.valid_acc, on_step=True, on_epoch=True)
+        #self.log({"valid_conf_mat":wandb.plot.confusion_matrix(preds=outputs['preds'].argmax(axis=1).detach().cpu().numpy(), y_true=outputs['target'].detach().cpu().numpy(), class_names=self.class_names)})
+        
+#     def validation_epoch_end(self, outputs):
+
+
+        

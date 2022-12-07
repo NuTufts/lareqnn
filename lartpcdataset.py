@@ -18,8 +18,8 @@ class lartpcDataset( torchvision.datasets.DatasetFolder ):
     def __init__(self, 
                  root='./data3d', 
                  extensions='.npy', 
-                 norm = True, clip = False,
-                 norm_mean = 0.1131, norm_std = 0.2687, 
+                 norm = True, clip = False, sqrt = False,
+                 norm_mean = 0.15, norm_std = 0.15, 
                  clip_min = 6.0, clip_max = 10.0,
                  transform = None, sparse = True, 
                  device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")):
@@ -29,6 +29,7 @@ class lartpcDataset( torchvision.datasets.DatasetFolder ):
         lartpcDataset.metadata = {}
         lartpcDataset.NORM = norm
         lartpcDataset.CLIP = clip
+        lartpcDataset.SQRT = sqrt
         lartpcDataset.NORM_MEAN = norm_mean
         lartpcDataset.NORM_STD = norm_std
         lartpcDataset.CLIP_MIN = clip_min
@@ -41,6 +42,9 @@ class lartpcDataset( torchvision.datasets.DatasetFolder ):
         with open(inp, 'rb') as f:
             npin = np.load(f)
             #npin = np.expand_dims(npin,axis=0)
+            
+        if lartpcDataset.SQRT:
+            npin[:,-1] = np.sqrt(npin[:,-1])
             
         if lartpcDataset.NORM:
             npin[:,-1] -= lartpcDataset.NORM_MEAN

@@ -24,15 +24,15 @@ if __name__ == '__main__':
 #             SparseToFull()
     ])
 
-    dataset = lartpcDataset( root="../data3d",transform=data_transform,device = DEVICE)
-    train_dataset, valid_dataset = torch.utils.data.random_split(dataset,[450,50])
+    dataset = lartpcDataset( root="../PilarDataTest",transform=data_transform,device = DEVICE)
+    train_dataset, valid_dataset = torch.utils.data.random_split(dataset,[round(0.8*len(dataset)),round(0.2*len(dataset))])
 
 
 
     
     
     # model
-    model = LitEngineResNet(batch_size=BATCHSIZE, train_dataset=train_dataset, val_dataset=valid_dataset)
+    model = LitEngineResNetSparse(batch_size=BATCHSIZE, train_dataset=train_dataset, val_dataset=valid_dataset)
     model.print_model()
     model = model
     
@@ -54,15 +54,19 @@ if __name__ == '__main__':
     # training
     
     
-    trainer = pl.Trainer(gpus=2,
+    trainer = pl.Trainer(accelerator='gpu',
+                         devices=2,
                          strategy='ddp',
                          precision=16,
                          accumulate_grad_batches=1,
                          #deterministic=True,
-                         limit_train_batches=5,
                          logger=wandb_logger, 
                          min_epochs=1,
                          max_epochs=500,
-                         log_every_n_steps=1)
+                         log_every_n_steps=1,
+                         gradient_clip_val=0.5,
+                         overfit_batches=1)
+    
+    ME.MinkowskiSyncBatchNorm.convert_sync_batchnorm(model)
     
     trainer.fit(model)
