@@ -3,9 +3,11 @@ from torchvision import transforms
 import pytorch_lightning as pl
 from argparse import ArgumentParser
 from pytorch_lightning.loggers import WandbLogger
+from pl_bolts.callbacks import ModuleDataMonitor
 import gc
 import MinkowskiEngine as ME
 import MEresnet
+
 
 from engine_lightning import LitEngineResNet, LitEngineResNetSparse
 from lartpcdataset import lartpcDataset, lartpcDatasetSparse, SparseToFull
@@ -23,12 +25,12 @@ if __name__ == '__main__':
     if sparse:
         data_transform = transforms.Compose([
         ])
-        dataset = lartpcDatasetSparse( root="../PilarDataTest",transform=data_transform,device = DEVICE)
+        dataset = lartpcDatasetSparse( root="../PilarDataTrain",transform=data_transform,device = DEVICE)
     else:
         data_transform = transforms.Compose([
              SparseToFull()
         ])
-        dataset = lartpcDataset( root="../PilarDataTest",transform=data_transform,device = DEVICE)
+        dataset = lartpcDataset( root="../PilarDataTrain",transform=data_transform,device = DEVICE)
 
     train_dataset, valid_dataset = torch.utils.data.random_split(dataset,[round(0.8*len(dataset)),round(0.2*len(dataset))])
 
@@ -45,7 +47,7 @@ if __name__ == '__main__':
     model.print_model()
     model = model
     
-    wandb_logger.watch(model)
+    wandb_logger.watch(model, log = "all", log_freq = 100)
 
 #     # testing block
 #     print("//////// TESTING BLOCK //////////")
@@ -63,9 +65,11 @@ if __name__ == '__main__':
     # training
     
     
-    trainer = pl.Trainer(accelerator='gpu',
-                         devices=2,
-                         strategy='ddp',
+    #monitor = ModuleDataMonitor(submodules=True)
+    
+    trainer = pl.Trainer(accelerator='cpu',
+                         #devices=2,
+                         #strategy='ddp',
                          precision=16,
                          accumulate_grad_batches=1,
                          #deterministic=True,
@@ -74,6 +78,7 @@ if __name__ == '__main__':
                          max_epochs=500,
                          log_every_n_steps=1,
                          gradient_clip_val=0.5,
+                         #callbacks=[monitor]
                          overfit_batches=1)
     
     if sparse:

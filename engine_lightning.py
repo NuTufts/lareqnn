@@ -18,6 +18,7 @@ class LitEngineResNetSparse(pl.LightningModule):
         pretrained=False,
         pin_memory = True,
         lr=5.0e-4, 
+        weight_decay = 1e-4,
         batch_size = 4, 
         input_channels = 1,
         class_names = ["electron","gamma","muon","proton","pion"],
@@ -43,7 +44,7 @@ class LitEngineResNetSparse(pl.LightningModule):
         return embedding
 
     def configure_optimizers(self):
-        optimizer = torch.optim.AdamW(self.parameters(), lr=self.lr)
+        optimizer = torch.optim.AdamW(self.parameters(), lr=self.lr, weight_decay=self.weight_decay)
         return optimizer
 
     def train_dataloader(self):
