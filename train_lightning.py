@@ -19,8 +19,8 @@ if __name__ == '__main__':
     DEVICE = torch.device("cuda")
     #DEVICE = torch.device("cpu")
 
-    BATCHSIZE=4
-    sparse = False
+    BATCHSIZE=2
+    sparse = True
     
     if sparse:
         data_transform = transforms.Compose([
@@ -47,7 +47,7 @@ if __name__ == '__main__':
     model.print_model()
     model = model
     
-    wandb_logger.watch(model, log = "all", log_freq = 100)
+    wandb_logger.watch(model, log = "all", log_freq = 1)
 
 #     # testing block
 #     print("//////// TESTING BLOCK //////////")
@@ -67,19 +67,19 @@ if __name__ == '__main__':
     
     #monitor = ModuleDataMonitor(submodules=True)
     
-    trainer = pl.Trainer(accelerator='cpu',
-                         #devices=2,
-                         #strategy='ddp',
+    trainer = pl.Trainer(accelerator='gpu',
+                         devices=2,
+                         strategy='ddp',
                          precision=16,
                          accumulate_grad_batches=1,
                          #deterministic=True,
                          logger=wandb_logger, 
                          min_epochs=1,
-                         max_epochs=500,
+                         max_epochs=50,
                          log_every_n_steps=1,
                          gradient_clip_val=0.5,
                          #callbacks=[monitor]
-                         overfit_batches=1)
+                         overfit_batches=2)
     
     if sparse:
         ME.MinkowskiSyncBatchNorm.convert_sync_batchnorm(model)

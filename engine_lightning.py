@@ -18,7 +18,7 @@ class LitEngineResNetSparse(pl.LightningModule):
         pretrained=False,
         pin_memory = True,
         lr=5.0e-4, 
-        weight_decay = 1e-4,
+        weight_decay = 1e-3,
         batch_size = 4, 
         input_channels = 1,
         class_names = ["electron","gamma","muon","proton","pion"],
