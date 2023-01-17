@@ -29,7 +29,7 @@ import torch.nn as nn
 from torch.optim import SGD
 
 import MinkowskiEngine as ME
-from MinkowskiEngine.modules.resnet_block import BasicBlock, Bottleneck
+from MEresnet_block import BasicBlock, Bottleneck
 
 
 
@@ -94,6 +94,16 @@ class ResNetBase(nn.Module):
             if isinstance(m, ME.MinkowskiBatchNorm):
                 nn.init.constant_(m.bn.weight, 1)
                 nn.init.constant_(m.bn.bias, 0)
+            
+            if isinstance(m, ME.MinkowskiInstanceNorm):
+                nn.init.constant_(m.weight, 1)
+                nn.init.constant_(m.bias, 0)
+            
+            if isinstance(m, ME.MinkowskiLinear):
+                nn.init.normal_(m.linear.weight, 0, 1/m.linear.in_features)
+                nn.init.constant_(m.linear.bias, 0)
+                
+                
 
     def _make_layer(self, block, planes, blocks, stride=1, dilation=1, bn_momentum=0.1):
         downsample = None
@@ -106,7 +116,7 @@ class ResNetBase(nn.Module):
                     stride=stride,
                     dimension=self.D,
                 ),
-                ME.MinkowskiBatchNorm(planes * block.expansion),
+                ME.MinkowskiInstanceNorm(planes * block.expansion),
             )
         layers = []
         layers.append(

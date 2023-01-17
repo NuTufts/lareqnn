@@ -47,7 +47,7 @@ if __name__ == '__main__':
     model.print_model()
     model = model
     
-    wandb_logger.watch(model, log = "all", log_freq = 1)
+    wandb_logger.watch(model, log = "parameters", log_freq = 1)
 
 #     # testing block
 #     print("//////// TESTING BLOCK //////////")
@@ -68,18 +68,18 @@ if __name__ == '__main__':
     #monitor = ModuleDataMonitor(submodules=True)
     
     trainer = pl.Trainer(accelerator='gpu',
-                         devices=2,
+                         devices=1,
                          strategy='ddp',
                          precision=16,
                          accumulate_grad_batches=1,
                          #deterministic=True,
                          logger=wandb_logger, 
                          min_epochs=1,
-                         max_epochs=50,
+                         max_epochs=500,
                          log_every_n_steps=1,
-                         gradient_clip_val=0.5,
+                         #gradient_clip_val=0.5,
                          #callbacks=[monitor]
-                         overfit_batches=2)
+                         overfit_batches=1)
     
     if sparse:
         ME.MinkowskiSyncBatchNorm.convert_sync_batchnorm(model)

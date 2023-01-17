@@ -17,13 +17,13 @@ class LitEngineResNetSparse(pl.LightningModule):
         val_dataset,
         pretrained=False,
         pin_memory = True,
-        lr=5.0e-4, 
+        lr=1.0e-3, 
         weight_decay = 1e-3,
         batch_size = 4, 
         input_channels = 1,
         class_names = ["electron","gamma","muon","proton","pion"],
-        train_acc = torchmetrics.Accuracy(task='multiclass',num_classes=5),
-        valid_acc = torchmetrics.Accuracy(task='multiclass',num_classes=5)
+        train_acc = torchmetrics.Accuracy(num_classes=5),
+        valid_acc = torchmetrics.Accuracy(num_classes=5)
     
     ):
         
