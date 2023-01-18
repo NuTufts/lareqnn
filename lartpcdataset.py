@@ -111,6 +111,10 @@ class lartpcDatasetSparse( torchvision.datasets.DatasetFolder ):
         coords = torch.from_numpy(sample[:,:-1])
         feat = torch.from_numpy(sample[:,-1])
         label = torch.tensor([target])
+        # mod's by Taritree
+        #coords = torch.from_numpy(sample[:,:-1]).type(torch.LongTensor)
+        #feat = torch.from_numpy(sample[:,-1]).unsqueeze(1).type(torch.FloatTensor) # ME needs feature to have 2D shape (N,1)
+        #label = torch.tensor([target]).type(torch.LongTensor)
         return coords, feat, label        
     
 

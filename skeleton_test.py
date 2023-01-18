@@ -7,49 +7,39 @@ from engine_lightning import LitEngineResNetSparse
 from lartpcdataset import lartpcDatasetSparse
 
 DEVICE = torch.device("cuda")
-BATCHSIZE=1
+BATCHSIZE=4
 dataset = lartpcDatasetSparse( root="data/",device = DEVICE)
-batchdata = next(iter(dataset))
-print(len(batchdata))
-print(batchdata[0].shape)
-print(batchdata[1].shape)
-print(batchdata[2].shape)
+loader = torch.utils.data.DataLoader( dataset, collate_fn=ME.utils.batch_sparse_collate, batch_size=BATCHSIZE )
+batchdata = next(iter(loader))
+print(batchdata)
+if False:
+    # set to true to just check data loader
+    sys.exit(0)
 
 loss_fn = torch.nn.CrossEntropyLoss().to(DEVICE)
-
-coords = batchdata[0].type(torch.LongTensor).to(DEVICE) # coords
-feats = batchdata[1].unsqueeze(1).type(torch.FloatTensor).to(DEVICE)  # feats
-truth = batchdata[2].type(torch.LongTensor).to(DEVICE)
-print("coords: ",coords.dtype,coords.shape)
-print("feats: ",feats.dtype,feats.shape)
-print("truth: ",truth.dtype,truth.shape)
-
-c = batchdata[2]
-
-coords_v = [coords]
-feats_v  = [feats]
-
-coords, feats = ME.utils.sparse_collate(coords_v, feats_v )
-sparsebatch = [ ME.SparseTensor(features=feats, coordinates=coords) ]
 
 engine = LitEngineResNetSparse( dataset, dataset ).to(DEVICE)
 print(engine.model)
 
-optimizer = torch.optim.AdamW( engine.parameters(), lr=0.001, weight_decay=0.01 )
+optimizer = torch.optim.AdamW( engine.parameters(), lr=1.0e-2, weight_decay=1.0e-5 )
 
-NITERS = 100
+#NITERS = 1   # batchsize=1
+NITERS = 1000 # batchsize=4
 
 for istep in range(NITERS):
 
     optimizer.zero_grad()
+
+    st = ME.SparseTensor( features=batchdata[1].unsqueeze(1).type(torch.FloatTensor).to(DEVICE),
+                          coordinates=batchdata[0].type(torch.IntTensor).to(DEVICE) )
     
     print("ITER ",istep)
-    out = engine.model( sparsebatch[0] )
+    out = engine.model( st )
     #print("out: ",out.shape)
     #print("out min: ",out.features.min())
     #print("out max: ",out.features.max())
 
-    loss = loss_fn( out.features, truth )
+    loss = loss_fn( out.features, batchdata[2].type(torch.LongTensor).to(DEVICE) )
     print("  loss: ",loss.detach())
 
     loss.backward()
