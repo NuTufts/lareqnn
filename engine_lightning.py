@@ -1,3 +1,4 @@
+import sys
 import torch
 from torch import nn
 from torch.nn import functional as F
@@ -13,28 +14,33 @@ import wandb
 class LitEngineResNetSparse(pl.LightningModule):
     def __init__(
         self,
+        hparams,
         train_dataset,
         val_dataset,
         pretrained=False,
-        pin_memory = True,
-        lr=1.0e-3, 
-        weight_decay = 1e-3,
-        batch_size = 4, 
         input_channels = 1,
         class_names = ["electron","gamma","muon","proton","pion"],
         train_acc = torchmetrics.Accuracy(num_classes=5),
         valid_acc = torchmetrics.Accuracy(num_classes=5)
-    
     ):
         
         super().__init__()
         for name, value in vars().items():
-            if name != "self":
+            if name != "self" and name != "hparams":
                 setattr(self, name, value)
         #self.wandb
-        self.model = MEresnet.ResNet14(in_channels=1, out_channels=5, D=3)
+        self.model = MEresnet.ResNet18(in_channels=1, out_channels=5, D=3)
         self.loss_fn = torch.nn.CrossEntropyLoss()
-        
+#         for key in hparams.keys():
+#             self.hparams[key]=hparams[key]
+#             print(key, hparams[key])
+        self.lr = hparams["lr"]
+        self.weight_decay = hparams["weight_decay"]
+        self.batch_size = hparams["batch_size"]
+        self.pin_memory = hparams["pin_memory"]
+        self.epochs = hparams["epochs"]
+        self.steps_per_epoch = hparams["steps_per_epoch"]
+        #sys.exit(0)
 
     def print_model(self):
         print(self.model)
@@ -44,8 +50,10 @@ class LitEngineResNetSparse(pl.LightningModule):
         return embedding
 
     def configure_optimizers(self):
-        optimizer = torch.optim.AdamW(self.parameters(), lr=self.lr, weight_decay=self.weight_decay)
-        return optimizer
+        #optimizer = torch.optim.AdamW(self.parameters(), lr=self.lr, weight_decay=self.weight_decay)
+        optimizer = torch.optim.SGD(self.parameters(), lr=self.lr)
+        scheduler = torch.optim.lr_scheduler.OneCycleLR(optimizer, self.lr, epochs=self.epochs, steps_per_epoch=1)
+        return [optimizer], [scheduler]
 
     def train_dataloader(self):
         return torch.utils.data.DataLoader(
@@ -75,19 +83,22 @@ class LitEngineResNetSparse(pl.LightningModule):
         stensor = ME.SparseTensor(coordinates=coords, features=feats.unsqueeze(dim=-1).float())
         z = self.model(stensor) 
         loss = self.calc_loss( z.F, labels.long() )
-        self.log('train_loss', loss, sync_dist=True, on_step=True, on_epoch=True, batch_size=self.batch_size)
+        self.log('train_loss', loss, sync_dist=True, on_step=False, on_epoch=True, batch_size=self.batch_size)
         if self.global_step % 10 == 0:
             torch.cuda.empty_cache()
         return {'loss': loss, 'preds': z.F, 'target': labels.long()}
 
     def training_step_end(self, outputs):
         self.train_acc(outputs['preds'], outputs['target'])
-        self.log('train_acc',self.train_acc, on_step=True, on_epoch=True)
+        self.log('train_acc',self.train_acc, on_step=False, on_epoch=True)
         #self.log({"train_conf_mat" : wandb.plot.confusion_matrix(preds=outputs['preds'].argmax(axis=1).detach().cpu().numpy(), y_true=outputs['target'].detach().cpu().numpy(), class_names=self.class_names)})
         return torch.mean(outputs['loss'])
     
-    #def training_epoch_end(self, outputs):
-
+#     def training_epoch_end(self, outputs):
+#         sch = self.lr_schedulers()
+#         #self.log('lr',self.lr, on_epoch=True)
+#         sch.step()
+        
     
 
     def validation_step(self, val_batch, batch_idx):
@@ -95,12 +106,12 @@ class LitEngineResNetSparse(pl.LightningModule):
         stensor = ME.SparseTensor(coordinates=coords, features=feats.unsqueeze(dim=-1).float())
         z = self.model(stensor) 
         loss = self.calc_loss( z.F, labels.long() )
-        self.log('val_loss', loss, batch_size=self.batch_size,on_step=True, on_epoch=True)
+        self.log('val_loss', loss, batch_size=self.batch_size,on_step=False, on_epoch=True)
         return {'loss': loss, 'preds': z.F, 'target': labels.long()}
         
     def validation_step_end(self, outputs):
         self.valid_acc(outputs['preds'], outputs['target'])
-        self.log('valid_acc',self.valid_acc, on_step=True, on_epoch=True)
+        self.log('valid_acc',self.valid_acc, on_step=False, on_epoch=True)
         #self.log({"valid_conf_mat":wandb.plot.confusion_matrix(preds=outputs['preds'].argmax(axis=1).detach().cpu().numpy(), y_true=outputs['target'].detach().cpu().numpy(), class_names=self.class_names)})
         
 #     def validation_epoch_end(self, outputs):

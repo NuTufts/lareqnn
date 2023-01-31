@@ -29,6 +29,7 @@ import torch.nn as nn
 from torch.optim import SGD
 
 import MinkowskiEngine as ME
+#from MinkowskiEngine.modules.resnet_block import BasicBlock, Bottleneck
 from MEresnet_block import BasicBlock, Bottleneck
 
 
@@ -83,7 +84,7 @@ class ResNetBase(nn.Module):
         )
 
         self.glob_pool = ME.MinkowskiGlobalMaxPooling()
-
+        
         self.final = ME.MinkowskiLinear(self.inplanes, out_channels, bias=True)
 
     def weight_initialization(self):
@@ -99,9 +100,9 @@ class ResNetBase(nn.Module):
                 nn.init.constant_(m.weight, 1)
                 nn.init.constant_(m.bias, 0)
             
-            if isinstance(m, ME.MinkowskiLinear):
-                nn.init.normal_(m.linear.weight, 0, 1/m.linear.in_features)
-                nn.init.constant_(m.linear.bias, 0)
+#             if isinstance(m, ME.MinkowskiLinear):
+#                 nn.init.normal_(m.linear.weight, 0, 1/m.linear.in_features)
+#                 nn.init.constant_(m.linear.bias, 0)
                 
                 
 

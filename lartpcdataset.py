@@ -12,9 +12,9 @@ class lartpcDataset( torchvision.datasets.DatasetFolder ):
     def __init__(self, 
                  root='./data3d', 
                  extensions='.npy', 
-                 norm = True, clip = False, sqrt = False,
-                 norm_mean = 0.15, norm_std = 0.15, 
-                 clip_min = 6.0, clip_max = 10.0,
+                 norm = True, clip = True, sqrt = False,
+                 norm_mean = 0.39, norm_std = 0.3, 
+                 clip_min = -1.0, clip_max = 3.0,
                  transform = None,
                  device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")):
         
@@ -56,9 +56,9 @@ class lartpcDatasetSparse( torchvision.datasets.DatasetFolder ):
     def __init__(self, 
                  root='./data3d', 
                  extensions='.npy', 
-                 norm = True, clip = False, sqrt = False,
-                 norm_mean = 0.15, norm_std = 0.15, 
-                 clip_min = 6.0, clip_max = 10.0,
+                 norm = True, clip = True, sqrt = False,
+                 norm_mean = 0.39, norm_std = 0.3, 
+                 clip_min = -1.0, clip_max = 3.0,
                  transform = None,
                  device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")):
         
