@@ -60,7 +60,7 @@ class BasicBlock(nn.Module):
         out = self.norm2(out)
 
         if self.downsample is not None:
-          residual = self.downsample(x)
+            residual = self.downsample(x)
 
         out += residual
         out = self.relu(out)
@@ -113,7 +113,7 @@ class Bottleneck(nn.Module):
         out = self.norm3(out)
 
         if self.downsample is not None:
-          residual = self.downsample(x)
+            residual = self.downsample(x)
 
         out += residual
         out = self.relu(out)

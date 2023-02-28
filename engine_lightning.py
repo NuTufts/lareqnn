@@ -10,6 +10,7 @@ import MEresnet
 import resnetbase
 import MinkowskiEngine as ME
 import wandb
+from lartpcdataset import PreProcess
 
 class LitEngineResNetSparse(pl.LightningModule):
     def __init__(
@@ -40,6 +41,14 @@ class LitEngineResNetSparse(pl.LightningModule):
         self.pin_memory = hparams["pin_memory"]
         self.epochs = hparams["epochs"]
         self.steps_per_epoch = hparams["steps_per_epoch"]
+        self.PreProcess = PreProcess(hparams["normalize"],
+                                    hparams["clip"],
+                                    hparams["sqrt"],
+                                    hparams["norm_mean"],
+                                    hparams["norm_std"],
+                                    hparams["clip_min"],
+                                    hparams["clip_max"]
+                                    )
         #sys.exit(0)
 
     def print_model(self):
@@ -50,8 +59,8 @@ class LitEngineResNetSparse(pl.LightningModule):
         return embedding
 
     def configure_optimizers(self):
-        #optimizer = torch.optim.AdamW(self.parameters(), lr=self.lr, weight_decay=self.weight_decay)
-        optimizer = torch.optim.SGD(self.parameters(), lr=self.lr)
+        optimizer = torch.optim.AdamW(self.parameters(), lr=self.lr, weight_decay=self.weight_decay)
+#         optimizer = torch.optim.SGD(self.parameters(), lr=self.lr)
         scheduler = torch.optim.lr_scheduler.OneCycleLR(optimizer, self.lr, epochs=self.epochs, steps_per_epoch=1)
         return [optimizer], [scheduler]
 
@@ -80,6 +89,7 @@ class LitEngineResNetSparse(pl.LightningModule):
     
     def training_step(self, train_batch, batch_idx):
         coords, feats, labels = train_batch # data batch, labels
+        feats = self.PreProcess(feats)
         stensor = ME.SparseTensor(coordinates=coords, features=feats.unsqueeze(dim=-1).float())
         z = self.model(stensor) 
         loss = self.calc_loss( z.F, labels.long() )
@@ -103,6 +113,7 @@ class LitEngineResNetSparse(pl.LightningModule):
 
     def validation_step(self, val_batch, batch_idx):
         coords, feats, labels = val_batch
+        feats = self.PreProcess(feats)
         stensor = ME.SparseTensor(coordinates=coords, features=feats.unsqueeze(dim=-1).float())
         z = self.model(stensor) 
         loss = self.calc_loss( z.F, labels.long() )

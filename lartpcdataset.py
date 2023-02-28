@@ -7,56 +7,13 @@ import torchvision.transforms as transforms
 import MinkowskiEngine as ME
 from typing import Any, Callable, cast, Dict, List, Optional, Tuple
 
-class lartpcDataset( torchvision.datasets.DatasetFolder ):
-    CLASSNAMES = ["electron","gamma","muon","proton","pion"]
-    def __init__(self, 
-                 root='./data3d', 
-                 extensions='.npy', 
-                 norm = True, clip = True, sqrt = False,
-                 norm_mean = 0.39, norm_std = 0.3, 
-                 clip_min = -1.0, clip_max = 3.0,
-                 transform = None,
-                 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")):
-        
-        super().__init__( root=root, loader=lartpcDataset.load_data, extensions=extensions, transform = transform)
-        
-        lartpcDataset.metadata = {}
-        lartpcDataset.NORM = norm
-        lartpcDataset.CLIP = clip
-        lartpcDataset.SQRT = sqrt
-        lartpcDataset.NORM_MEAN = norm_mean
-        lartpcDataset.NORM_STD = norm_std
-        lartpcDataset.CLIP_MIN = clip_min
-        lartpcDataset.CLIP_MAX = clip_max
-        lartpcDataset.device = device
-
-    def load_data(inp):
-        #print("lartpcDataset.load_data: path=",inp)
-        with open(inp, 'rb') as f:
-            npin = np.load(f)
-            #npin = np.expand_dims(npin,axis=0)
-            
-        if lartpcDataset.SQRT:
-            npin[:,-1] = np.sqrt(npin[:,-1])
-            
-        if lartpcDataset.NORM:
-            npin[:,-1] -= lartpcDataset.NORM_MEAN
-            npin[:,-1] /= lartpcDataset.NORM_STD
-            
-        if lartpcDataset.CLIP:
-            np.clip(npin[:,-1],
-                    lartpcDataset.CLIP_MIN,
-                    lartpcDataset.CLIP_MAX, out = npin[:,-1])
-            
-        return npin
-    
         
 class lartpcDatasetSparse( torchvision.datasets.DatasetFolder ):
     CLASSNAMES = ["electron","gamma","muon","proton","pion"]
     def __init__(self, 
                  root='./data3d', 
                  extensions='.npy', 
-                 norm = True, clip = True, sqrt = False,
+                 norm = False, clip = False, sqrt = False, #remmove preprocessing from here
                  norm_mean = 0.39, norm_std = 0.3, 
                  clip_min = -1.0, clip_max = 3.0,
                  transform = None,
@@ -116,7 +73,56 @@ class lartpcDatasetSparse( torchvision.datasets.DatasetFolder ):
         #feat = torch.from_numpy(sample[:,-1]).unsqueeze(1).type(torch.FloatTensor) # ME needs feature to have 2D shape (N,1)
         #label = torch.tensor([target]).type(torch.LongTensor)
         return coords, feat, label        
+ 
+
+
+class lartpcDataset( torchvision.datasets.DatasetFolder ):
+    CLASSNAMES = ["electron","gamma","muon","proton","pion"]
+    def __init__(self, 
+                 root='./data3d', 
+                 extensions='.npy', 
+                 norm = True, clip = True, sqrt = True,
+                 norm_mean = 0, norm_std = 0.3, 
+                 clip_min = -1.0, clip_max = 3.0,
+                 transform = None,
+                 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")):
+        
+        super().__init__( root=root, loader=lartpcDataset.load_data, extensions=extensions, transform = transform)
+        
+        lartpcDataset.metadata = {}
+        lartpcDataset.NORM = norm
+        lartpcDataset.CLIP = clip
+        lartpcDataset.SQRT = sqrt
+        lartpcDataset.NORM_MEAN = norm_mean
+        lartpcDataset.NORM_STD = norm_std
+        lartpcDataset.CLIP_MIN = clip_min
+        lartpcDataset.CLIP_MAX = clip_max
+        lartpcDataset.device = device
+
+    def load_data(inp):
+        #print("lartpcDataset.load_data: path=",inp)
+        with open(inp, 'rb') as f:
+            npin = np.load(f)
+            #npin = np.expand_dims(npin,axis=0)
+            
+        if lartpcDataset.SQRT:
+            npin[:,-1] = np.sqrt(npin[:,-1])
+            
+        if lartpcDataset.NORM:
+            npin[:,-1] -= lartpcDataset.NORM_MEAN
+            npin[:,-1] /= lartpcDataset.NORM_STD
+            
+        if lartpcDataset.CLIP:
+            np.clip(npin[:,-1],
+                    lartpcDataset.CLIP_MIN,
+                    lartpcDataset.CLIP_MAX, out = npin[:,-1])
+            
+        return npin
     
+
+
+
+
 
 class SparseToFull(object):
     """Change from sparse data format to a full 3D image.
@@ -149,6 +155,62 @@ class SparseToFull(object):
 
     def __repr__(self) -> str:
         return f"{self.__class__.__name__}(Image Size={self.imagesize})"     
+
+    
+    
+    
+    
+    
+class PreProcess(object):
+    """Presprocess Data
+    At the moment includes:
+    
+
+    Args:
+        norm (bool): normalize the data
+        clip (bool): clip the data
+        sqrt (bool): take square root of data
+        norm_mean (float): mean of noise to be added
+        norm_std (float): std of noise to be added
+        clip_min (float): min clip value
+        clip_max (float): max clip value
+        full (bool): true if data is not in sparse form
+    """
+
+    def __init__(self, norm = True, clip = True, sqrt = True, norm_mean = 0.65, norm_std = 0.57, clip_min = -1.0, clip_max = 1.0):
+        assert isinstance(norm_mean,float)
+        assert isinstance(norm_std,float)
+        assert isinstance(clip_min,float)
+        assert isinstance(clip_max,float)
+        super().__init__()
+        for name, value in vars().items():
+            if name != "self" and name != "hparams":
+                setattr(self, name, value)
+
+    def __call__(self, feat):
+        """
+        Args:
+            feat: features to process
+
+        Returns:
+            feat: processed features
+        """
+        feat = feat.float()
+        if self.sqrt:
+            torch.sqrt(feat, out=feat) # Take in place square root of tensor
+        if self.norm:
+            torch.sub(feat, self.norm_mean, alpha=1, out=feat) # subtract mean
+            torch.div(feat, self.norm_std, out=feat) #divide by std
+        if self.clip:
+            torch.clip(feat, min=self.clip_min, max=self.clip_max, out=feat)
+        return feat
+        
+    def __repr__(self) -> str:
+        return f"{self.__class__.__name__}(norm={self.norm}, sqrt={self.sqrt}, clip={self.clip}, mean={self.norm_mean}, std={self.norm_std}, clip_min={self.clip_min}, clip_max={self.clip_max})"        
+    
+    
+    
+    
     
     
 class AddNoise(object):

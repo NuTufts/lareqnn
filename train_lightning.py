@@ -16,26 +16,33 @@ if __name__ == '__main__':
     # Sweep parameters
 
     config = dict(
-        train_datapath = "../PTrain",
-        test_datapath = "../PilarDataTest",
-        batch_size = 4,
-        lr = 1e-3,
-        weight_decay = 1e-2,
-        grad_batches = 1,
-        epochs = 100,
-        pin_memory = True,
-        grad_clip = 0.5,
-        steps_per_epoch = 100
-    )
+            train_datapath = "../PTrain",
+            test_datapath = "../PilarDataTest",
+            batch_size = 4,
+            lr = 1e-4,
+            weight_decay = 1e-2,
+            grad_batches = 1,
+            epochs = 500,
+            pin_memory = True,
+            grad_clip = 0.5,
+            steps_per_epoch = 100,
+            normalize = True, 
+            clip = True, 
+            sqrt = True, 
+            norm_mean = 0.65, 
+            norm_std = 0.57, 
+            clip_min = -1.0, 
+            clip_max = 1.0
+        )
     
     
     
     
 
-    wandb.init(config=hyperparameter_defaults)
-    # Config parameters are automatically set by W&B sweep agent
-    config = wandb.config
-    #config = hyperparameter_defaults
+#     wandb.init(config=hyperparameter_defaults)
+#     # Config parameters are automatically set by W&B sweep agent
+#     config = wandb.config
+#     #config = hyperparameter_defaults
     
     
     
@@ -111,7 +118,7 @@ if __name__ == '__main__':
                      max_epochs=config["epochs"],
                      log_every_n_steps=10,
                      #overfit_batches=4,
-                     gradient_clip_val=config["grad_clip"],
+                     #gradient_clip_val=config["grad_clip"],
                      limit_train_batches=config["steps_per_epoch"],
                      limit_val_batches=50,
                      callbacks=[lr_monitor])
