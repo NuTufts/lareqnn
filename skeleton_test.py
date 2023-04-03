@@ -1,28 +1,46 @@
+# Skeleton code to run the code in a simpler configuration
+
 import os,sys
 import torch
 import numpy as np
 import MinkowskiEngine as ME
 from tqdm import trange, tqdm
+import MEresnet
 
-from engine_lightning import LitEngineResNetSparse
-from lartpcdataset import lartpcDatasetSparse
+#from engine_lightning import LitEngineResNetSparse
+from lartpcdataset import lartpcDatasetSparse, PreProcess
 
 
 
 config = dict(
-        train_datapath = "../PTrain",
-        test_datapath = "../PilarDataTest",
-        batch_size = 4,
-        lr = 1e-3,
-        weight_decay = 1e-2,
-        grad_batches = 1,
-        epochs = 100,
-        pin_memory = True,
-        grad_clip = 0.5,
-        steps_per_epoch = 100
-    )
+            train_datapath = "../PTrain",
+            test_datapath = "../PilarDataTest",
+            model = "Resnet18",
+            batch_size = 4,
+            lr = 1e-2,
+            weight_decay = 1e-2,
+            grad_batches = 1,
+            epochs = 1000,
+            pin_memory = True,
+            grad_clip = 0.5,
+            steps_per_epoch = 100,
+            normalize = True, 
+            clip = True, 
+            sqrt = True, 
+            norm_mean = 0.65, 
+            norm_std = 0.57, 
+            clip_min = -1.0, 
+            clip_max = 1.0
+        )
 
-
+PreP = PreProcess(config["normalize"],
+                                    config["clip"],
+                                    config["sqrt"],
+                                    config["norm_mean"],
+                                    config["norm_std"],
+                                    config["clip_min"],
+                                    config["clip_max"]
+                                    )
 
 
 
@@ -40,19 +58,25 @@ losses = np.array([])
 classes = dataset.class_to_idx
 invclasses = {v: k for k, v in classes.items()}
 
-
-
-for i in range(10):
+for i in range(25):
     
     print(f"\nBatch {i}")
     
     batchdata = next(iter(loader))
 
     coords, feats, labels = batchdata # data batch, labels
-        #     st = ME.SparseTensor(coordinates=coords.to(DEVICE), features=feats.unsqueeze(dim=-1).float().to(DEVICE))
 
-    st = ME.SparseTensor( features=batchdata[1].unsqueeze(1).type(torch.FloatTensor).to(DEVICE),
-                             coordinates=batchdata[0].type(torch.IntTensor).to(DEVICE) )
+    coords = coords.type(torch.IntTensor).to(DEVICE)
+    feats = PreP(feats.unsqueeze(1).type(torch.FloatTensor).to(DEVICE))
+  
+#    print(feat)
+ #   print(feats.cpu())
+    #     st = ME.SparseTensor(coordinates=coords.to(DEVICE), features=feats.unsqueeze(dim=-1).float().to(DEVICE))
+    if [invclasses[int(i)] for i in batchdata[2].cpu()][0]!="Proton":
+        continue
+    st = ME.SparseTensor( features=feats,
+                             coordinates=coords )
+
     
     truelabel = [invclasses[int(i)] for i in batchdata[2].cpu()]
     
@@ -72,10 +96,11 @@ for i in range(10):
 
     loss_fn = torch.nn.CrossEntropyLoss().to(DEVICE)
 
-    engine = LitEngineResNetSparse(config, dataset, dataset ).to(DEVICE)
+    #engine = LitEngineResNetSparse(config, dataset, dataset ).to(DEVICE)
     #print(engine.model)
+    model = MEresnet.ResNet18(in_channels=1, out_channels=5, D=3).to(DEVICE)
 
-    optimizer = torch.optim.SGD(engine.parameters(), lr=config["lr"])
+    optimizer = torch.optim.SGD(model.parameters(), lr=config["lr"])
     #optimizer = torch.optim.AdamW( engine.parameters(), lr=config["lr"], weight_decay=config["weight_decay"] )
 
     #NITERS = 1   # batchsize=1
@@ -83,10 +108,6 @@ for i in range(10):
 
     losssmall = np.array([])
     
-#     print(st)
-#     print(st.features)
-    
-    #for istep in range(NITERS):
     pbar = tqdm(range(NITERS))
     
     for istep in pbar:
@@ -94,13 +115,13 @@ for i in range(10):
 
         
         #print("ITER ",istep)
-        out = engine.model( st )
+        out = model( st )
         #print("out: ",out.shape)
         #print("out min: ",out.features.min())
         #print("out max: ",out.features.max())
         maxname = "test"
         maxvalue = 0.5
-        for name, param in engine.model.named_parameters():
+        for name, param in model.named_parameters():
             if param.requires_grad:
                 maxdata = torch.max(torch.abs(param.data))
                 if maxdata > maxvalue:
@@ -119,17 +140,33 @@ for i in range(10):
         
         
         pbar.set_description(f"ITER {istep}, Loss {loss.detach():.3f}, {maxname} = {maxvalue:.3f}" )
-#             losssmall = np.append(losssmall,loss.detach().cpu().numpy())
+        losssmall = np.append(losssmall,loss.detach().cpu().numpy())
 #         #print("  loss: ",loss.detach())
         
 
         loss.backward()
-        torch.nn.utils.clip_grad_norm_(engine.model.parameters(), 1.0)
+        #torch.nn.utils.clip_grad_norm_(engine.model.parameters(), 1.0)
         optimizer.step()
-#     losses=np.append(losses,losssmall)
-    #print([invclasses[int(i)] for i in batchdata[2].cpu()])
+    losses=np.append(losses,losssmall)
+    
     print(f"final {out.features.cpu().detach().numpy()}")
     predictedlabel = [invclasses[int(i)] for i in out.features.argmax(1).cpu()]
     print(f"True {truelabel}, Pred {predictedlabel}")
+    
+#     print(st)
+#     print(st.features)
+    
+    #for istep in range(NITERS):
 
+    
+    
+
+    
+    
+    
+    
+    
+    
+    
+    
 np.save("losses.npy",losses)

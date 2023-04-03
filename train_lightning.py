@@ -11,27 +11,29 @@ import wandb
 
 
 from engine_lightning import LitEngineResNet, LitEngineResNetSparse
-from lartpcdataset import lartpcDataset, lartpcDatasetSparse, SparseToFull
+from lartpcdataset import lartpcDataset, lartpcDatasetSparse, SparseToFull, PreProcess, AddNoise
 if __name__ == '__main__': 
     # Sweep parameters
 
-    config = dict(
-            train_datapath = "../PTrain",
+    hyperparameter_defaults = dict(
+            train_datapath = "../PilarDataTrain",
             test_datapath = "../PilarDataTest",
-            batch_size = 4,
+            model = "ResNet18",
+            batch_size = 16,
             lr = 1e-4,
             weight_decay = 1e-2,
             grad_batches = 1,
-            epochs = 500,
+            gpus = [0],
+            epochs = 1000,
             pin_memory = True,
-            grad_clip = 0.5,
-            steps_per_epoch = 100,
-            normalize = True, 
+            grad_clip = 1,
+            steps_per_epoch = 1000,
+            normalize = False, 
             clip = True, 
             sqrt = True, 
             norm_mean = 0.65, 
             norm_std = 0.57, 
-            clip_min = -1.0, 
+            clip_min = 0.0, 
             clip_max = 1.0
         )
     
@@ -39,10 +41,10 @@ if __name__ == '__main__':
     
     
 
-#     wandb.init(config=hyperparameter_defaults)
-#     # Config parameters are automatically set by W&B sweep agent
-#     config = wandb.config
-#     #config = hyperparameter_defaults
+    wandb.init(config=hyperparameter_defaults)
+    # Config parameters are automatically set by W&B sweep agent
+    config = wandb.config
+    #config = hyperparameter_defaults
     
     
     
@@ -87,7 +89,7 @@ if __name__ == '__main__':
     model.print_model()
     model = model
     
-    wandb_logger.watch(model, log = "all")
+    wandb_logger.watch(model, log = "all", log_freq=10000)
 
 #     # testing block
 #     print("//////// TESTING BLOCK //////////")
@@ -105,12 +107,13 @@ if __name__ == '__main__':
     # training
     
     lr_monitor = pl.callbacks.LearningRateMonitor(logging_interval='step')
+    early_stopping = pl.callbacks.EarlyStopping('val_loss', patience = 10)
     #monitor = ModuleDataMonitor(submodules=True)
     
     trainer = pl.Trainer(accelerator='gpu',
-                     devices=2,
+                     devices=config["gpus"],
                      strategy='ddp',
-                     precision=16,
+                     precision=32,
                      accumulate_grad_batches=config["grad_batches"],
                      #deterministic=True,
                      logger=wandb_logger, 
@@ -118,10 +121,10 @@ if __name__ == '__main__':
                      max_epochs=config["epochs"],
                      log_every_n_steps=10,
                      #overfit_batches=4,
-                     #gradient_clip_val=config["grad_clip"],
+                     gradient_clip_val=config["grad_clip"],
                      limit_train_batches=config["steps_per_epoch"],
-                     limit_val_batches=50,
-                     callbacks=[lr_monitor])
+                     limit_val_batches=100,
+                     callbacks=[lr_monitor,early_stopping])
                      #callbacks=[monitor])
     
     if sparse:

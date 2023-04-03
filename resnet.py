@@ -29,25 +29,20 @@ import torch
 import torch.nn as nn
 from torch.optim import SGD
 
-try:
-    import open3d as o3d
-except ImportError:
-    raise ImportError("Please install open3d with `pip install open3d`.")
+#try:
+#    import open3d as o3d
+#except ImportError:
+#    raise ImportError("Please install open3d with `pip install open3d`.")
 
 import MinkowskiEngine as ME
-from MinkowskiEngine.modules.resnet_block import BasicBlock, Bottleneck
+#from MinkowskiEngine.modules.resnet_block import BasicBlock, Bottleneck
+from resnet_block_leaky import BasicBlock, Bottleneck
 
 
-if not os.path.isfile("1.ply"):
-    print('Downloading an example pointcloud...')
-    urlretrieve("https://bit.ly/3c2iLhg", "1.ply")
 
-
-def load_file(file_name):
-    pcd = o3d.io.read_point_cloud(file_name)
-    coords = np.array(pcd.points)
-    colors = np.array(pcd.colors)
-    return coords, colors, pcd
+#if not os.path.isfile("1.ply"):
+#    print('Downloading an example pointcloud...')
+#    urlretrieve("https://bit.ly/3c2iLhg", "1.ply")
 
 
 class ResNetBase(nn.Module):
@@ -71,8 +66,8 @@ class ResNetBase(nn.Module):
             ME.MinkowskiConvolution(
                 in_channels, self.inplanes, kernel_size=3, stride=2, dimension=D
             ),
-            ME.MinkowskiInstanceNorm(self.inplanes),
-            ME.MinkowskiReLU(inplace=True),
+            ME.MinkowskiBatchNorm(self.inplanes),
+            ME.MinkowskiLeakyReLU(inplace=True),
             ME.MinkowskiMaxPooling(kernel_size=2, stride=2, dimension=D),
         )
 
@@ -90,12 +85,12 @@ class ResNetBase(nn.Module):
         )
 
         self.conv5 = nn.Sequential(
-            ME.MinkowskiDropout(),
-            ME.MinkowskiConvolution(
-                self.inplanes, self.inplanes, kernel_size=3, stride=3, dimension=D
-            ),
-            ME.MinkowskiInstanceNorm(self.inplanes),
-            ME.MinkowskiGELU(),
+            #ME.MinkowskiDropout(),
+#             ME.MinkowskiConvolution(
+#                 self.inplanes, self.inplanes, kernel_size=3, stride=3, dimension=D
+#             ),
+            ME.MinkowskiBatchNorm(self.inplanes),
+            ME.MinkowskiLeakyReLU(),
         )
 
         self.glob_pool = ME.MinkowskiGlobalMaxPooling()
@@ -122,7 +117,7 @@ class ResNetBase(nn.Module):
                     stride=stride,
                     dimension=self.D,
                 ),
-                ME.MinkowskiInstanceNorm(planes * block.expansion),
+                ME.MinkowskiBatchNorm(planes * block.expansion),
             )
         layers = []
         layers.append(
@@ -151,7 +146,7 @@ class ResNetBase(nn.Module):
         x = self.layer2(x)
         x = self.layer3(x)
         x = self.layer4(x)
-        x = self.conv5(x)
+        #x = self.conv5(x)
         x = self.glob_pool(x)
         return self.final(x)
 

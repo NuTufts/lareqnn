@@ -7,10 +7,12 @@ from torch.utils.data import random_split
 import torchmetrics
 import pytorch_lightning as pl
 import MEresnet
+import TMEresnet
+import resnet
 import resnetbase
 import MinkowskiEngine as ME
 import wandb
-from lartpcdataset import PreProcess
+from lartpcdataset import PreProcess, AddNoise
 
 class LitEngineResNetSparse(pl.LightningModule):
     def __init__(
@@ -21,16 +23,15 @@ class LitEngineResNetSparse(pl.LightningModule):
         pretrained=False,
         input_channels = 1,
         class_names = ["electron","gamma","muon","proton","pion"],
-        train_acc = torchmetrics.Accuracy(num_classes=5),
-        valid_acc = torchmetrics.Accuracy(num_classes=5)
+        train_acc = torchmetrics.Accuracy(task="multiclass",num_classes=5),
+        valid_acc = torchmetrics.Accuracy(task="multiclass",num_classes=5)
     ):
         
         super().__init__()
         for name, value in vars().items():
             if name != "self" and name != "hparams":
                 setattr(self, name, value)
-        #self.wandb
-        self.model = MEresnet.ResNet18(in_channels=1, out_channels=5, D=3)
+        #self.
         self.loss_fn = torch.nn.CrossEntropyLoss()
 #         for key in hparams.keys():
 #             self.hparams[key]=hparams[key]
@@ -49,7 +50,26 @@ class LitEngineResNetSparse(pl.LightningModule):
                                     hparams["clip_min"],
                                     hparams["clip_max"]
                                     )
-        #sys.exit(0)
+        self.AddNoise = AddNoise(self.device)
+        
+        if hparams["model"]=="ResNet14":
+            self.model = resnet.ResNet14(in_channels=1, out_channels=5, D=3)
+        elif hparams["model"]=="ResNet18":
+            self.model = resnet.ResNet18(in_channels=1, out_channels=5, D=3)
+        elif hparams["model"]=="ResNet34":
+            self.model = resnet.ResNet34(in_channels=1, out_channels=5, D=3)
+        elif hparams["model"]=="ResNet50":
+            self.model = resnet.ResNet50(in_channels=1, out_channels=5, D=3)
+        elif hparams["model"]=="InstanceResNet14":
+            self.model = MEresnet.ResNet14(in_channels=1, out_channels=5, D=3)
+        elif hparams["model"]=="InstanceResNet18":
+            self.model = MEresnet.ResNet18(in_channels=1, out_channels=5, D=3)
+        elif hparams["model"]=="InstanceResNet34":
+            self.model = MEresnet.ResNet34(in_channels=1, out_channels=5, D=3)
+        elif hparams["model"]=="InstanceResNet50":
+            self.model = MEresnet.ResNet50(in_channels=1, out_channels=5, D=3)
+        else:
+            raise Exception("A valid model was not chosen")
 
     def print_model(self):
         print(self.model)
@@ -90,6 +110,8 @@ class LitEngineResNetSparse(pl.LightningModule):
     def training_step(self, train_batch, batch_idx):
         coords, feats, labels = train_batch # data batch, labels
         feats = self.PreProcess(feats)
+        self.AddNoise.device = self.device
+        feats = self.AddNoise(feats)
         stensor = ME.SparseTensor(coordinates=coords, features=feats.unsqueeze(dim=-1).float())
         z = self.model(stensor) 
         loss = self.calc_loss( z.F, labels.long() )
@@ -128,6 +150,8 @@ class LitEngineResNetSparse(pl.LightningModule):
 #     def validation_epoch_end(self, outputs):
 
 
+
+# Code for non sparse implementation TODO [Has Bugs]
 class LitEngineResNet(pl.LightningModule):
     def __init__(
         self,

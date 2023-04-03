@@ -202,7 +202,7 @@ class PreProcess(object):
             torch.sub(feat, self.norm_mean, alpha=1, out=feat) # subtract mean
             torch.div(feat, self.norm_std, out=feat) #divide by std
         if self.clip:
-            torch.clip(feat, min=self.clip_min, max=self.clip_max, out=feat)
+            torch.clamp(feat, self.clip_min, self.clip_max, out=feat)
         return feat
         
     def __repr__(self) -> str:
@@ -222,13 +222,14 @@ class AddNoise(object):
         full (bool): true if data is not in sparse form
     """
 
-    def __init__(self, noise_mean = 0.0, noise_std = 0.1, full = False):
+    def __init__(self, device, noise_mean = 0.0, noise_std = 0.1, full = False):
         super().__init__()
         assert isinstance(noise_mean,float)
         assert isinstance(noise_std,float)
         self.noise_mean = noise_mean
         self.noise_std = noise_std
         self.full = full
+        self.device = device
 
     def __call__(self, tensor):
         """
@@ -244,8 +245,8 @@ class AddNoise(object):
             return tensor+noise
 
         else:
-            noise = torch.normal(self.noise_mean,self.noise_std, size = tensor.shape[0])
-            return tensor[:,-1] + noise
+            noise = torch.normal(self.noise_mean,self.noise_std, size = [tensor.shape[0]]).to(self.device)
+            return tensor + noise
         
     def __repr__(self) -> str:
         return f"{self.__class__.__name__}(Noise mean={self.noise_mean}, Noise std={self.noise_std})"    
