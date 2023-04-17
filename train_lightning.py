@@ -13,10 +13,10 @@ from engine_lightning import LitEngineResNet, LitEngineResNetSparse
 from lartpcdataset import lartpcDataset, lartpcDatasetSparse, SparseToFull, PreProcess, AddNoise
 if __name__ == '__main__': 
     # Sweep parameters
-
+    workdir = "/home/oalterkait"
     hyperparameter_defaults = dict(
-            train_datapath = "../PilarDataTrain",
-            test_datapath = "../PilarDataTest",
+            train_datapath = workdir+"/PilarDataTrain",
+            test_datapath = workdir+"/PilarDataTest",
             model = "ResNet18",
             batch_size = 16,
             lr = 1e-4,
