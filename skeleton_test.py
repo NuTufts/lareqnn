@@ -5,7 +5,7 @@ import torch
 import numpy as np
 import MinkowskiEngine as ME
 from tqdm import trange, tqdm
-import MEresnet
+import models.resnet
 
 #from engine_lightning import LitEngineResNetSparse
 from lartpcdataset import lartpcDatasetSparse, PreProcess

@@ -6,7 +6,6 @@ from pytorch_lightning.loggers import WandbLogger
 #from pl_bolts.callbacks import ModuleDataMonitor
 import gc
 import MinkowskiEngine as ME
-import MEresnet
 import wandb
 
 

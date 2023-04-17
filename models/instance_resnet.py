@@ -1,3 +1,5 @@
+# Resnet model with all batch norms changed to instance norms
+
 # Copyright (c) Chris Choy (chrischoy@ai.stanford.edu).
 #
 # Permission is hereby granted, free of charge, to any person obtaining a copy of
@@ -30,7 +32,7 @@ from torch.optim import SGD
 
 import MinkowskiEngine as ME
 #from MinkowskiEngine.modules.resnet_block import BasicBlock, Bottleneck
-from MEresnet_block import BasicBlock, Bottleneck
+from .instance_resnet_block import BasicBlock, Bottleneck
 
 
 

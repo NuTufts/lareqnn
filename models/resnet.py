@@ -36,7 +36,7 @@ from torch.optim import SGD
 
 import MinkowskiEngine as ME
 #from MinkowskiEngine.modules.resnet_block import BasicBlock, Bottleneck
-from resnet_block_leaky import BasicBlock, Bottleneck
+from .resnet_block_leaky import BasicBlock, Bottleneck
 
 
 

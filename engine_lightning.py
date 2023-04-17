@@ -6,10 +6,9 @@ from torch.utils.data import DataLoader
 from torch.utils.data import random_split
 import torchmetrics
 import pytorch_lightning as pl
-import MEresnet
-import TMEresnet
-import resnet
-import resnetbase
+import models.instance_resnet as instance_resnet
+import models.resnet as resnet
+#import models.resnetbase as resnetbase
 import MinkowskiEngine as ME
 import wandb
 from lartpcdataset import PreProcess, AddNoise
