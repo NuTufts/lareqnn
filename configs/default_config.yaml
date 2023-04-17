@@ -1,0 +1,42 @@
+# Training and Test File Locations
+
+test_datapath: /home/oalterkait/PilarDataTest
+train_datapath: /home/oalterkait/PilarDataTrain
+
+
+
+# Training Parameters
+
+pin_memory: true
+## wandb file location
+project: lar-e3nn-sparse
+## number of gpus to use (format each on new line: - 0, - 1, ...)
+gpus:
+- 0
+- 1
+
+
+
+# Hyperparameters
+
+model: ResNet18
+lr: 0.0001
+epochs: 1000
+steps_per_epoch: 1000
+batch_size: 16
+grad_batches: 1
+grad_clip: 1
+weight_decay: 0.01
+
+
+
+# Preprocessing Values
+
+## Take sqrt of data
+sqrt: true
+normalize: false
+norm_mean: 0.65
+norm_std: 0.57
+clip: true
+clip_min: 0.0
+clip_max: 1.0

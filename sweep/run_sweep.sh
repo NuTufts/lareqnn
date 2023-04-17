@@ -2,15 +2,16 @@
 
 # File for running multiple wandb agents on multiple gpus. 
 # Initiates multiple agents per GPU on a seperate screen for each one. Then runs the singularity container and the code
-# TODO: Seperate out init_sweep and make this exclusively for running sweeps
 
 # Set default value
 default_config_loc="sweep_config.yaml"
 number_agents="1"
 project="lareqnn"
 max_runs="20"
-CONTAINER="/home/oalterkait/singularity_minkowskiengine_u20.04.cu111.torch1.9.0_comput8.sif"
-workdir="/home/oalterkait/lareqnn/sweep"
+workdir="/home/oalterkait"
+container="${workdir}/lareqnn/singularity_minkowskiengine_u20\
+.04.cu111.torch1.9.0_comput8.sif"
+sweepdir="${workdir}/lareqnn/sweep"
 
 # Get the number of GPUs using nvidia-smi
 number_gpus=$(nvidia-smi --list-gpus | wc -l)
@@ -32,7 +33,7 @@ if [ -e "sweep_id.txt" ]; then
     echo "Using Existing Sweep ID: $sweep_id"
 else
     # Run the init_sweep.py file and save the output to sweep_id.txt
-    python3 ${workdir}/init_sweep.py "$config_lo\
+    python3 ${sweepdir}/init_sweep.py "$config_lo\
 c" "$project" | tail -n 1 > sweep_id.txt
     # Import the first line as variable sweep_id
     sweep_id=$(head -n 1 sweep_id.txt)
@@ -51,7 +52,7 @@ for gpu in `seq 0 $(( $number_gpus - 1))`; do
         
         session_name="session_GPU${gpu}_AGENT${agent}"
         
-        command_to_run_sweep="singularity exec --nv ${CONTAINER} bash -c \"CUDA_VISIBLE_DEVICES=${gpu} python3 ${workdir}/run_sweep.py ${sweep_id} ${max_runs} ${project} &> ${workdir}/GPU${gpu}_Agent${agent}_Log.txt\"\n"
+        command_to_run_sweep="singularity exec --nv ${container} bash -c \"CUDA_VISIBLE_DEVICES=${gpu} python3 ${sweepdir}/run_sweep.py ${sweep_id} ${max_runs} ${project} &> ${sweepdir}/GPU${gpu}_Agent${agent}_Log.txt\"\n"
         
         screen -dmS "$session_name" bash
         screen -S "$session_name" -X stuff "${command_to_run_sweep}"

@@ -1,3 +1,4 @@
+import yaml
 import torch
 from torchvision import transforms
 import pytorch_lightning as pl
@@ -11,31 +12,12 @@ import wandb
 
 from engine_lightning import LitEngineResNet, LitEngineResNetSparse
 from lartpcdataset import lartpcDataset, lartpcDatasetSparse, SparseToFull, PreProcess, AddNoise
-if __name__ == '__main__': 
+if __name__ == '__main__':
     # Sweep parameters
-    workdir = "/home/oalterkait"
-    hyperparameter_defaults = dict(
-            train_datapath = workdir+"/PilarDataTrain",
-            test_datapath = workdir+"/PilarDataTest",
-            model = "ResNet18",
-            batch_size = 16,
-            lr = 1e-4,
-            weight_decay = 1e-2,
-            grad_batches = 1,
-            gpus = [0],
-            epochs = 1000,
-            pin_memory = True,
-            grad_clip = 1,
-            steps_per_epoch = 1000,
-            normalize = False, 
-            clip = True, 
-            sqrt = True, 
-            norm_mean = 0.65, 
-            norm_std = 0.57, 
-            clip_min = 0.0, 
-            clip_max = 1.0
-        )
-    
+    config_loc = "configs/default_config.yaml"
+
+    with open(config_loc, "r") as yaml_file:
+        hyperparameter_defaults = yaml.safe_load(yaml_file)    
     
     
     
@@ -51,7 +33,7 @@ if __name__ == '__main__':
     
     
     
-    wandb_logger = WandbLogger(project='lar-e3nn-sparse')
+    wandb_logger = WandbLogger(project=config["project"])
 
     pl.seed_everything(42, workers=True)
 
