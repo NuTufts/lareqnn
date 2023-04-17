@@ -29,18 +29,17 @@ import torch
 import torch.nn as nn
 from torch.optim import SGD
 
-#try:
+# try:
 #    import open3d as o3d
-#except ImportError:
+# except ImportError:
 #    raise ImportError("Please install open3d with `pip install open3d`.")
 
 import MinkowskiEngine as ME
-#from MinkowskiEngine.modules.resnet_block import BasicBlock, Bottleneck
+# from MinkowskiEngine.modules.resnet_block import BasicBlock, Bottleneck
 from .resnet_block_leaky import BasicBlock, Bottleneck
 
 
-
-#if not os.path.isfile("1.ply"):
+# if not os.path.isfile("1.ply"):
 #    print('Downloading an example pointcloud...')
 #    urlretrieve("https://bit.ly/3c2iLhg", "1.ply")
 
@@ -85,10 +84,10 @@ class ResNetBase(nn.Module):
         )
 
         self.conv5 = nn.Sequential(
-            #ME.MinkowskiDropout(),
-#             ME.MinkowskiConvolution(
-#                 self.inplanes, self.inplanes, kernel_size=3, stride=3, dimension=D
-#             ),
+            # ME.MinkowskiDropout(),
+            #             ME.MinkowskiConvolution(
+            #                 self.inplanes, self.inplanes, kernel_size=3, stride=3, dimension=D
+            #             ),
             ME.MinkowskiBatchNorm(self.inplanes),
             ME.MinkowskiLeakyReLU(),
         )
@@ -146,7 +145,7 @@ class ResNetBase(nn.Module):
         x = self.layer2(x)
         x = self.layer3(x)
         x = self.layer4(x)
-        #x = self.conv5(x)
+        # x = self.conv5(x)
         x = self.glob_pool(x)
         return self.final(x)
 
