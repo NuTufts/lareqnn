@@ -4,22 +4,12 @@ from e3nn.o3 import Irreps
 from e3nn import o3
 from e3nn.nn import BatchNorm
 import math
-from equiv_sparse_voxel_convolution import Convolution, rotate_sparse_tensor, EquivariantBatchNorm, EquivariantSoftMax
+from equiv_sparse_voxel_convolution import rotate_sparse_tensor
+from equiv_sparse_voxel_model import EquivModel, test_equivariance
+# TODO: put rotate and test and np loader in equiv_utils
 import MinkowskiEngine as ME
 import torch.nn as nn
 import numpy as np
-
-def np_loader(inp):
-    """Load data from file
-    Args:
-        inp (str): path to file
-    Returns:
-        npin (np.array): data
-    """
-    with open(inp, 'rb') as f:
-        npin = np.load(f)
-
-    return npin
 
 rotations = [
     (0.0, 0.0, 0.0),
@@ -36,104 +26,152 @@ rotations = [
 ]
 
 
-def test_equivariance(rotations):
+def np_loader(inp):
+    """Load data from file
+    Args:
+        inp (str): path to file
+    Returns:
+        npin (np.array): data
+    """
+    with open(inp, 'rb') as f:
+        npin = np.load(f)
 
-    irreps_in = Irreps("0e") # Single Scalar
-    irreps_out = Irreps("5x0e") # 5 labels
+    return npin
 
-    data_directory = "../PilarDataTrain"
-    sample = np_loader(data_directory + "/Electron/000001.npy")
-    print(sample.shape)
 
-    coords = torch.from_numpy(sample[:, :-1])
-    feat = torch.from_numpy(sample[:, -1]).unsqueeze(dim=-1).float()
-    zeros = torch.zeros_like(feat)
-    coords = torch.cat([zeros, coords], dim=-1).int()
+def main():
+    irreps_in = Irreps("0e")  # Single Scalar
+    irreps_out = Irreps("5x0e")  # 5 labels
+    segment = False
+    epochs = 2000
 
-    print(coords)
+    data_directory = "../PilarDataTrain/"
 
-    print(coords.shape, feat.shape)
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+    # Selected data to test overfitting
+    file_locations = [data_directory + "/Electron/000005.npy",
+                      data_directory + "/Muon/000001.npy",
+                      data_directory + "/Gamma/000004.npy",
+                      data_directory + "/Proton/000007.npy",
+                      data_directory + "/Pion/000001.npy",
+                      data_directory + "/Electron/000007.npy",
+                      data_directory + "/Muon/000005.npy",
+                      data_directory + "/Gamma/000008.npy",
+                      ]
+
+    true_labels = [0, 1, 2, 3, 4, 0, 1, 2]
+
+    data = []
+    weights = torch.zeros(5)
+
+    for i, file in enumerate(file_locations):
+        sample = np_loader(file)
+        coords = torch.from_numpy(sample[:, :-1])
+        feat = torch.from_numpy(sample[:, -1]).unsqueeze(dim=-1).float()
+        feat = torch.sqrt(feat)
+        label = torch.Tensor([true_labels[i]]).int()
+        if segment:
+            labels = label * torch.ones_like(feat).int()
+            data.append((coords, feat, labels))
+            weights[int(label)] += len(sample)
+        else:
+            data.append((coords, feat, label))
+            weights[int(label)] += 1
+
+    weights = torch.Tensor(weights)
+
+    weights = 1 - weights / weights.sum()
+
+    print(weights)
+
+    collate = ME.utils.batch_sparse_collate
+    collated_data = collate(data)
+
+    coords, feats, labels = collated_data
+
+    print(f"collated_data: {collated_data=}")
+
+    print(f"{labels=}")
+
+    print(f"coords: {coords.shape}, feat: {feats.shape}")
+
+    labels = labels.long().to(device)
+
+    if segment:
+        labels = labels.squeeze(1)
 
     x1 = ME.SparseTensor(
         coordinates=coords,
-        features=feat
+        features=feats,
+        device=device
     )
 
-    
+    model = EquivModel(irreps_in, irreps_out, segment=segment).to(device)
 
+    test_equivariance(x1, model, rotations, irreps_in, irreps_out, device=device)
 
-    for abc in rotations:
-        abc = torch.tensor(abc)
+    model.to(device)
 
-        labels = torch.tensor([0, 1, 2, 3], dtype=torch.int32)
+    loss_fn = nn.CrossEntropyLoss(weight=weights.to(device))
 
-        model = EquivModel(irreps_in, irreps_out)
+    optim = torch.optim.Adam(model.parameters(), lr=1e-3, weight_decay=1e-2)
 
-        # (assert round false to avoid error)
-        x2 = rotate_sparse_tensor(x1, irreps_in, abc, assert_round=False) # rotate input
-        y2 = model(x2)
+    losses = np.zeros(epochs)
+    accuracies = np.zeros((epochs, 5))
 
-        y1 = model(x1)
-        y1 = rotate_sparse_tensor(y1, irreps_out, abc, assert_round=False)
+    for step in range(epochs):
+        pred = model(x1)
 
+        # print model parameters
+        param_max = 0.0
+        param_max_name = ""
+        for name, param in model.named_parameters():
+            if param.abs().max() > param_max:
+                param_max = param.abs().max()
+                param_max_name = name
 
-        # check equivariance
-        assert (y1.C - y2.C).abs().max() == 0
-        print((y1.F - y2.F).abs().max(), 1e-6 * y1.F.abs().max())
-        # assert (y1.F - y2.F).abs().max() < 1e-6 * y1.F.abs().max()
-    print(y1)
-    print(y2)
+        # if step == 1000:
+        #     optim.param_groups[0]['lr'] = 0.001
+        # if step == 1800:
+        #     optim.param_groups[0]['lr'] = 0.001
 
+        loss = loss_fn(pred.F, labels)
+        # loss = (torch.argmax(pred, dim=-1) - label).pow(2).mean()
 
-class EquivModel(torch.nn.Module):
-    def __init__(self, irreps_in=Irreps("1e"), irreps_out=Irreps("0e + 1e + 2e")) -> None:
-        super().__init__()
-        self.irreps_in = irreps_in
-        self.irreps_out = irreps_out
-        self.irreps_sh = Irreps("0e + 1e + 2e")
-        self.irreps_mid = o3.Irreps("64x0e + 24x1e + 24x1o + 16x2e + 16x2o")
-        self.network_initialization()
-        self.weight_initialization()
+        optim.zero_grad()
+        loss.backward()
+        optim.step()
 
-    def network_initialization(self):
-        self.conv1 = Convolution(self.irreps_in, self.irreps_mid, irreps_sh=self.irreps_sh, diameter=7,
-                                 num_radial_basis=3,
-                                 steps=(1.0, 1.0, 1.0))
+        losses[step] = loss.detach().cpu().numpy()
 
-        self.conv2 = Convolution(self.irreps_mid, self.irreps_mid, irreps_sh=self.irreps_sh, diameter=7,
-                                 num_radial_basis=3,
-                                 steps=(1.0, 1.0, 1.0))
+        accuracy = (torch.argmax(pred.F, dim=-1) == labels).float().mean()
+        per_class_accuracy = []
 
-        self.conv3 = Convolution(self.irreps_mid, self.irreps_out, irreps_sh=self.irreps_sh, diameter=7,
-                                 num_radial_basis=3,
-                                 steps=(1.0, 1.0, 1.0))
+        # calculate confusion matrix
+        confusion_matrix = torch.zeros((5, 5))
+        num_labels = torch.zeros((5, 1))
+        for i in range(5):
+            for j in range(5):
+                confusion_matrix[i, j] = ((torch.argmax(pred.F.detach(), dim=-1) == i) & (labels == j)).float().sum()
+            num_labels[i] = (labels == i).float().sum()
+            accuracies[step, i] = confusion_matrix[i, i] / num_labels[i]
 
-        # print attributes of irreps_mid
+        if step % 5 == 0:
+            print("Total number of instances per class:")
+            print(num_labels.numpy().T)
+            print("Confusion matrix:")
+            with np.printoptions(precision=4, suppress=True):
+                print(confusion_matrix.numpy())
 
-        self.norm1 = EquivariantBatchNorm(self.irreps_mid)
+            print(
+                f"epoch {step:5d} | loss {loss:<3.2f} | accuracy {accuracy:<3.2f} | max {param_max_name} {param_max:4.3f}")
 
-        self.norm2 = EquivariantBatchNorm(self.irreps_mid)
-
-        self.softmax = EquivariantSoftMax(dim=0)
-
-    def forward(self, data) -> torch.Tensor:
-        x = self.conv1(data)
-        x = self.norm1(x)
-        x = self.conv2(x)
-        x = self.norm2(x)
-        x = self.conv3(x)
-        x = self.softmax(x)
-        return x
-
-    def weight_initialization(self):
-        for m in self.modules():
-            if isinstance(m, ME.MinkowskiConvolution):
-                ME.utils.kaiming_normal_(m.kernel, mode="fan_out", nonlinearity="relu")
-
-            if isinstance(m, ME.MinkowskiBatchNorm):
-                nn.init.constant_(m.bn.weight, 1)
-                nn.init.constant_(m.bn.bias, 0)
+    np.save("losses.npy", losses)
+    np.save("accuracies.npy", accuracies)
+    test_equivariance(x1, model, rotations, irreps_in, irreps_out, device=device)
 
 
 if __name__ == "__main__":
-    test_equivariance(rotations)
+    main()
+    # test_equivariance(rotations)
