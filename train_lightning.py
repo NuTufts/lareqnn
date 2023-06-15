@@ -1,9 +1,9 @@
 import yaml
 import torch
 from torchvision import transforms
-import pytorch_lightning as pl
+import lightning.pytorch as pl
 from argparse import ArgumentParser
-from pytorch_lightning.loggers import WandbLogger
+from lightning.pytorch.loggers import WandbLogger
 # from pl_bolts.callbacks import ModuleDataMonitor
 import gc
 import MinkowskiEngine as ME
@@ -71,7 +71,7 @@ if __name__ == '__main__':
 
     trainer = pl.Trainer(accelerator='gpu',
                          devices=config["gpus"],
-                         strategy='ddp',
+                         strategy='auto',
                          precision=32,
                          accumulate_grad_batches=config["grad_batches"],
                          # deterministic=True,

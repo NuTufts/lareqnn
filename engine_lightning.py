@@ -5,12 +5,14 @@ from torch.nn import functional as F
 from torch.utils.data import DataLoader
 from torch.utils.data import random_split
 import torchmetrics
-import pytorch_lightning as pl
+import lightning.pytorch as pl
 import models.resnet as resnet
 # import models.instance_resnet as instance_resnet
 import MinkowskiEngine as ME
 import wandb
 from dataset.data_utils import PreProcess, AddNoise
+import numpy as np
+import matplotlib.pyplot as plt
 
 
 class LitEngineResNetSparse(pl.LightningModule):
@@ -22,9 +24,7 @@ class LitEngineResNetSparse(pl.LightningModule):
             classes,
             class_to_idx,
             pretrained=False,
-            input_channels=1,
-            train_acc=torchmetrics.Accuracy(task="multiclass", num_classes=5),
-            valid_acc=torchmetrics.Accuracy(task="multiclass", num_classes=5)
+            input_channels=1
     ):
 
         super().__init__()
@@ -43,6 +43,12 @@ class LitEngineResNetSparse(pl.LightningModule):
         self.pin_memory = hparams["pin_memory"]
         self.epochs = hparams["epochs"]
         self.steps_per_epoch = hparams["steps_per_epoch"]
+
+        self.train_acc = torchmetrics.Accuracy(task="multiclass", num_classes=5, average="none")
+        self.valid_acc = torchmetrics.Accuracy(task="multiclass", num_classes=5, average="none")
+        self.train_conf = torchmetrics.ConfusionMatrix(task="multiclass", num_classes=5)
+        self.valid_conf = torchmetrics.ConfusionMatrix(task="multiclass", num_classes=5)
+
         self.PreProcess = PreProcess(hparams["normalize"],
                                      hparams["clip"],
                                      hparams["sqrt"],
@@ -52,6 +58,7 @@ class LitEngineResNetSparse(pl.LightningModule):
                                      hparams["clip_max"]
                                      )
         self.AddNoise = AddNoise(self.device)
+
 
         if hparams["model"] == "ResNet14":
             self.model = resnet.ResNet14(in_channels=1, out_channels=5, D=3)
@@ -115,21 +122,30 @@ class LitEngineResNetSparse(pl.LightningModule):
         stensor = ME.SparseTensor(coordinates=coords, features=feats.unsqueeze(dim=-1).float())
         z = self.model(stensor)
         loss = self.calc_loss(z.F, labels.long())
-        self.log('train_loss', loss, sync_dist=True, on_step=False, on_epoch=True, batch_size=self.batch_size)
+        self.log('train_loss', loss, on_step=False, on_epoch=True, batch_size=self.batch_size, sync_dist=True)
+
+        self.train_acc.update(z.F, labels.long())
+        self.train_conf.update(z.F, labels.long())
+
         if self.global_step % 10 == 0:
             torch.cuda.empty_cache()
-        return {'loss': loss, 'preds': z.F, 'target': labels.long()}
+        return loss
 
-    def training_step_end(self, outputs):
-        self.train_acc(outputs['preds'], outputs['target'])
-        self.log('train_acc', self.train_acc, on_step=False, on_epoch=True)
-        # self.log({"train_conf_mat" : wandb.plot.confusion_matrix(preds=outputs['preds'].argmax(axis=1).detach().cpu().numpy(), y_true=outputs['target'].detach().cpu().numpy(), class_names=self.class_names)})
-        return torch.mean(outputs['loss'])
+    def on_train_epoch_end(self):
+        print("train_acc", self.train_acc.compute().cpu().numpy())
+        print("train_conf", self.train_conf.compute().cpu().numpy())
 
-    #     def training_epoch_end(self, outputs):
-    #         sch = self.lr_schedulers()
-    #         #self.log('lr',self.lr, on_epoch=True)
-    #         sch.step()
+        train_accuracies = self.train_acc.compute().cpu().numpy()
+
+        for i, cl in enumerate(self.classes):
+            self.log(f"train_acc_{cl}", train_accuracies[i], sync_dist=True)
+
+        #fig = plot_confusion_matrix(self.train_conf.compute().cpu().numpy(), self.classes)
+        #plt.savefig(f"/plots/train_confusion_matrix_{self.global_step}.png")
+
+
+        self.train_acc.reset()
+        self.train_conf.reset()
 
     def validation_step(self, val_batch, batch_idx):
         coords, feats, labels = val_batch
@@ -137,12 +153,72 @@ class LitEngineResNetSparse(pl.LightningModule):
         stensor = ME.SparseTensor(coordinates=coords, features=feats.unsqueeze(dim=-1).float())
         z = self.model(stensor)
         loss = self.calc_loss(z.F, labels.long())
-        self.log('val_loss', loss, batch_size=self.batch_size, on_step=False, on_epoch=True)
-        return {'loss': loss, 'preds': z.F, 'target': labels.long()}
+        self.log('val_loss', loss, on_step=False, on_epoch=True, batch_size=self.batch_size, sync_dist=True)
 
-    def validation_step_end(self, outputs):
-        self.valid_acc(outputs['preds'], outputs['target'])
-        self.log('valid_acc', self.valid_acc, on_step=False, on_epoch=True)
-        # self.log({"valid_conf_mat":wandb.plot.confusion_matrix(preds=outputs['preds'].argmax(axis=1).detach().cpu().numpy(), y_true=outputs['target'].detach().cpu().numpy(), class_names=self.class_names)})
+        self.valid_acc.update(z.F, labels.long())
+        self.valid_conf.update(z.F, labels.long())
+
+        return loss
+    #
+    def on_validation_epoch_end(self):
+        print("valid_acc", self.valid_acc.compute().cpu().numpy())
+        print("valid_conf", self.valid_conf.compute().cpu().numpy())
+
+        valid_accuracies = self.valid_acc.compute().cpu().numpy()
+
+        for i, cl in enumerate(self.classes):
+            self.log(f"valid_acc_{cl}", valid_accuracies[i], sync_dist=True)
+
+        self.valid_acc.reset()
+        self.valid_conf.reset()
+        
+    # def validation_step_end(self, outputs):
+    #     self.valid_acc(outputs['preds'], outputs['target'])
+    #     self.log('valid_acc', self.valid_acc, on_step=False, on_epoch=True, batch_size=self.batch_size)
+    #     # self.log({"valid_conf_mat":wandb.plot.confusion_matrix(preds=outputs['preds'].argmax(axis=1).detach().cpu().numpy(), y_true=outputs['target'].detach().cpu().numpy(), class_names=self.class_names)})
 
 #     def validation_epoch_end(self, outputs):
+
+
+def plot_confusion_matrix(confusion_matrix, class_names):
+    """Plots the confusion matrix.
+
+    Parameters:
+    - confusion_matrix: a 2D numpy array representing the confusion matrix.
+    - class_names: a list of strings representing the names of the classes.
+
+    Returns:
+    - fig: matplotlib Figure instance with the plot.
+    """
+    # Create a new figure
+    fig, ax = plt.subplots()
+
+    # Display the confusion matrix as a color-encoded 2D plot
+    cax = ax.matshow(confusion_matrix, cmap='coolwarm')  # Change colormap as needed
+
+    # Add colorbar for reference
+    fig.colorbar(cax)
+
+    # Add labels and title
+    plt.xlabel('Predicted')
+    plt.ylabel('True')
+    plt.title('Confusion Matrix')
+
+    # Add tick marks
+    ax.set_xticks(np.arange(len(class_names)))
+    ax.set_yticks(np.arange(len(class_names)))
+
+    # Label ticks with the respective class names
+    ax.set_xticklabels(class_names)
+    ax.set_yticklabels(class_names)
+
+    # Rotate the tick labels and set their alignment
+    plt.setp(ax.get_xticklabels(), rotation=45, ha="right", rotation_mode="anchor")
+
+    # Loop over data dimensions and create text annotations with the value of each cell
+    for i in range(len(class_names)):
+        for j in range(len(class_names)):
+            ax.text(j, i, confusion_matrix[i, j],
+                    ha="center", va="center", color="black")  # Adjust color as needed
+
+    return fig
