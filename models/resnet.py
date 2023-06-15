@@ -83,14 +83,14 @@ class ResNetBase(nn.Module):
             self.BLOCK, self.PLANES[3], self.LAYERS[3], stride=2
         )
 
-        self.conv5 = nn.Sequential(
-            # ME.MinkowskiDropout(),
-            #             ME.MinkowskiConvolution(
-            #                 self.inplanes, self.inplanes, kernel_size=3, stride=3, dimension=D
-            #             ),
-            ME.MinkowskiBatchNorm(self.inplanes),
-            ME.MinkowskiLeakyReLU(),
-        )
+        # self.conv5 = nn.Sequential(
+        #     # ME.MinkowskiDropout(),
+        #     #             ME.MinkowskiConvolution(
+        #     #                 self.inplanes, self.inplanes, kernel_size=3, stride=3, dimension=D
+        #     #             ),
+        #     ME.MinkowskiBatchNorm(self.inplanes),
+        #     ME.MinkowskiLeakyReLU(),
+        # )
 
         self.glob_pool = ME.MinkowskiGlobalMaxPooling()
 
