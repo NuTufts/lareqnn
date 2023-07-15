@@ -10,7 +10,8 @@ from e3nn.o3 import FullyConnectedTensorProduct, Linear, Irreps
 from e3nn.nn import BatchNorm, Activation, Gate
 
 try:
-    from MinkowskiEngine import KernelGenerator, MinkowskiConvolutionFunction, SparseTensor
+    from MinkowskiEngine import KernelGenerator, MinkowskiConvolutionFunction, SparseTensor, MinkowskiInterpolation,\
+        MinkowskiMaxPooling, MinkowskiAvgPooling
     from MinkowskiEngineBackend._C import ConvolutionMode
 except ImportError:
     pass
@@ -44,7 +45,8 @@ class Convolution(torch.nn.Module):
         irreps_out are the same)
     """
 
-    def __init__(self, irreps_in, irreps_out, irreps_sh, diameter, num_radial_basis, steps=(1.0, 1.0, 1.0), no_linear=False):
+    def __init__(self, irreps_in, irreps_out, irreps_sh, diameter, num_radial_basis, steps=(1.0, 1.0, 1.0),
+                 no_linear=False):
         super().__init__()
 
         self.irreps_in = o3.Irreps(irreps_in)
@@ -71,7 +73,7 @@ class Convolution(torch.nn.Module):
         z = torch.arange(-s, s + 1.0) * steps[2]
 
         # lattice = torch.stack(torch.meshgrid(x, y, z, indexing="ij"), dim=-1)  # [x, y, z, R^3]
-        lattice = torch.stack(torch.meshgrid(x, y, z), dim=-1)  # [x, y, z, R^3]
+        lattice = torch.stack(torch.meshgrid(x, y, z, indexing="ij"), dim=-1)  # [x, y, z, R^3]
         self.register_buffer("lattice", lattice)
 
         emb = soft_one_hot_linspace(
@@ -254,6 +256,76 @@ class EquivariantActivation(torch.nn.Module):
         return self.__class__.__name__ + s
 
 
+class EquivariantDownSample(torch.nn.Module):
+    r"""An equivariant downsampling layer for a sparse tensor. 
+
+    Parameters:
+        irreps (Irreps): the irreps of the input
+        kernel_size (int): kernel size for the pooling layer
+        stride (int): stride length for the pooling
+        """
+
+    def __init__(
+        self,
+        irreps,
+        kernel_size,
+        stride,
+        pooling_mode = "max"
+    ):
+        super(EquivariantDownSample, self).__init__()
+        self.irreps = irreps
+        self.kernel_size = kernel_size
+        self.stride = stride
+        self.pooling_mode = pooling_mode
+        self.max_pool = MinkowskiMaxPooling(kernel_size=kernel_size, stride=stride, dimension=3)
+        self.avg_pool = MinkowskiAvgPooling(kernel_size=kernel_size, stride=stride, dimension=3)
+        assert input.F.shape[1] == irreps.dim, "Shape mismatch"
+
+    def forward(self, input):
+        cat_list = []
+
+        start = 0
+        max_pool = ME.MinkowskiMaxPooling(kernel_size=kernel_size, stride=stride, dimension=dim)
+        for i in self.irreps.ls:
+    
+            end = start + 2*i+1
+            temp = input.F[:,start:end,...]
+            if i == 0:
+                cat_list.append(temp)
+            else:
+                # stack the features and their norms together
+                norm = temp.norm(dim=1, keepdim=True)
+                cat_list.append(norm)
+    
+            start = end
+    
+        # stack all tensors along the feature dimension
+        stacked_features = torch.cat(cat_list, dim=1)
+    
+        # create a sparse tensor from the stacked features
+        stacked_tensors = ME.SparseTensor(coordinates=input.C, features=stacked_features)
+
+        # perform pooling on the stacked tensor
+        if self.pooling_mode == "max":
+            pooled_tensors = self.max_pool(stacked_tensors)
+        elif self.pooling_mode == "avg":
+            pooled_tensors = self.avg_pool(stacked_tensors)
+        else:
+            raise ValueError(f"Unknown mode {mode}")
+    
+        return pooled_tensors
+
+
+    def __repr__(self):
+        s = "(irreps={}, kernel_size={}, stride={}, pooling_mode={})".format(
+            self.irreps,
+            self.kernel_size,
+            self.stride,
+            self.pooling_mode
+        )
+        return self.__class__.__name__ + s
+
+
 class EquivariantConvolutionBlock(torch.nn.Module):
     r"""An equivariant convolution block for a sparse tensor.
 
@@ -278,9 +350,10 @@ class EquivariantConvolutionBlock(torch.nn.Module):
         super(EquivariantConvolutionBlock, self).__init__()
 
         self.activation = EquivariantActivation(irreps_out, activation)
-        self.conv = Convolution(irreps_in, self.activation.irreps_in, irreps_sh, diameter, num_radial_basis=3, steps=steps)
+        self.conv = Convolution(irreps_in, self.activation.irreps_in, irreps_sh, diameter, num_radial_basis=3,
+                                steps=steps)
         self.BN = EquivariantBatchNorm(irreps_out)
-        
+
     def forward(self, input):
         output = self.conv(input)
         output = self.activation(output)
@@ -289,9 +362,10 @@ class EquivariantConvolutionBlock(torch.nn.Module):
         return output
 
 
-
 class EquivariantSoftMax(torch.nn.Module):
-    r"""An equivariant softmax layer for a sparse tensor."""
+    """
+    An equivariant softmax layer for a sparse tensor.
+    """
 
     def __init__(
             self,
@@ -318,20 +392,3 @@ class EquivariantSoftMax(torch.nn.Module):
 
 
 
-def rotate_sparse_tensor(x, irreps, abc, device, assert_round=False):
-    """Perform a rotation of angles abc to a sparse tensor"""
-
-    coordinates = x.C[:, 1:].to(x.F.dtype).to(device)
-    coordinates = torch.einsum("ij,bj->bi", Irreps("1e").D_from_angles(*abc).to(device), coordinates)
-    #D_from_angles is YXY rotation applied right to left
-
-    if assert_round:
-        assert (coordinates - coordinates.round()).abs().max() < 1e-3
-    coordinates = coordinates.round().to(torch.int32)
-    coordinates = torch.cat([x.C[:, :1], coordinates], dim=1)
-
-    # rotate the features (according to `irreps`)
-    features = x.F.to(device)
-    features = torch.einsum("ij,bj->bi", irreps.D_from_angles(*abc).to(device), features)
-
-    return SparseTensor(coordinates=coordinates, features=features)

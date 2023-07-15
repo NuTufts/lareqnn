@@ -29,7 +29,7 @@ def test_equivariance(abc):
     pytest.importorskip("MinkowskiEngine")
 
     from MinkowskiEngine import SparseTensor
-    from equiv_sparse_voxel_convolution import Convolution
+    from sparse_voxel_convolution import Convolution
 
     abc = torch.tensor(abc)
 

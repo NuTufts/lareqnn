@@ -22,33 +22,36 @@ if __name__ == '__main__':
     with open(config_loc, "r") as yaml_file:
         hyperparameter_defaults = yaml.safe_load(yaml_file)
 
-    wandb.init(config=hyperparameter_defaults)
+    # wandb.init(config=hyperparameter_defaults)
     # Config parameters are automatically set by W&B sweep agent
-    config = wandb.config
+    config = hyperparameter_defaults
     # config = hyperparameter_defaults
 
     wandb_logger = WandbLogger(project=config["project"])
 
-    pl.seed_everything(42, workers=True)
+    wandb_logger.log_hyperparams(config)
+
+    #pl.seed_everything(42, workers=True)
 
     DEVICE = torch.device("cuda")
     # DEVICE = torch.device("cpu")
 
-    data_transform = transforms.Compose([
+    train_transform = transforms.Compose([
     ])
-    dataset = lartpcDatasetSparse(root=config["train_datapath"], transform=data_transform, device=DEVICE)
+    valid_transform = transforms.Compose([
+    ])
+    #dataset = lartpcDatasetSparse(root=config["train_datapath"], transform=data_transform, device=DEVICE)
+    train_dataset = lartpcDatasetSparse(root=config["train_datapath"], transform=train_transform, device=DEVICE)
+    valid_dataset = lartpcDatasetSparse(root=config["valid_datapath"], transform=valid_transform, device=DEVICE)
 
-    train_dataset, valid_dataset = torch.utils.data.random_split(dataset,
-                                                                 [round(0.8 * len(dataset)),
-                                                                  round(0.2 * len(dataset))])
+    assert(train_dataset.class_to_idx == valid_dataset.class_to_idx) #make sure same labels
 
     model = LitEngineResNetSparse(hparams=config, train_dataset=train_dataset, val_dataset=valid_dataset,
-                                  classes=dataset.classes, class_to_idx=dataset.class_to_idx)
+                                  classes=train_dataset.classes, class_to_idx=train_dataset.class_to_idx)
 
     model.print_model()
-    model = model
 
-    wandb_logger.watch(model, log="all", log_freq=10000)
+    wandb_logger.watch(model, log="all", log_freq=1000)
 
     #     # testing block
     #     print("//////// TESTING BLOCK //////////")
@@ -65,13 +68,15 @@ if __name__ == '__main__':
 
     # training
 
+
     lr_monitor = pl.callbacks.LearningRateMonitor(logging_interval='step')
-    early_stopping = pl.callbacks.EarlyStopping('val_loss', patience=10)
+    checkpoint_callback = pl.callbacks.ModelCheckpoint(monitor='val_loss', save_top_k=1, mode='min', every_n_epochs=100)
+    # early_stopping = pl.callbacks.EarlyStopping('val_loss', patience=20)
     # monitor = ModuleDataMonitor(submodules=True)
 
     trainer = pl.Trainer(accelerator='gpu',
                          devices=config["gpus"],
-                         strategy='auto',
+                         strategy='ddp',
                          precision=32,
                          accumulate_grad_batches=config["grad_batches"],
                          # deterministic=True,
@@ -83,7 +88,8 @@ if __name__ == '__main__':
                          gradient_clip_val=config["grad_clip"],
                          limit_train_batches=config["steps_per_epoch"],
                          limit_val_batches=100,
-                         callbacks=[lr_monitor, early_stopping])
+                         callbacks=[lr_monitor, checkpoint_callback])
+    #                    callbacks=[lr_monitor, early_stopping])
     # callbacks=[monitor])
 
     ME.MinkowskiSyncBatchNorm.convert_sync_batchnorm(model)

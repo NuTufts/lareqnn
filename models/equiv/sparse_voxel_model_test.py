@@ -4,9 +4,8 @@ from e3nn.o3 import Irreps
 from e3nn import o3
 from e3nn.nn import BatchNorm
 import math
-from equiv_sparse_voxel_convolution import rotate_sparse_tensor
-from equiv_sparse_voxel_model import EquivModel, test_equivariance
-# TODO: put rotate and test and np loader in equiv_utils
+from utils import rotate_sparse_tensor, test_equivariance, np_loader
+from sparse_voxel_model import EquivModel
 import MinkowskiEngine as ME
 import torch.nn as nn
 import numpy as np
@@ -26,26 +25,13 @@ rotations = [
 ]
 
 
-def np_loader(inp):
-    """Load data from file
-    Args:
-        inp (str): path to file
-    Returns:
-        npin (np.array): data
-    """
-    with open(inp, 'rb') as f:
-        npin = np.load(f)
-
-    return npin
-
-
 def main():
     irreps_in = Irreps("0e")  # Single Scalar
     irreps_out = Irreps("5x0e")  # 5 labels
-    segment = False
+    segment = True
     epochs = 2000
 
-    data_directory = "../PilarDataTrain/"
+    data_directory = "../PilarData/Train/"
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -115,7 +101,7 @@ def main():
 
     loss_fn = nn.CrossEntropyLoss(weight=weights.to(device))
 
-    optim = torch.optim.Adam(model.parameters(), lr=1e-3, weight_decay=1e-2)
+    optim = torch.optim.Adam(model.parameters(), lr=5e-3, weight_decay=1e-2)
 
     losses = np.zeros(epochs)
     accuracies = np.zeros((epochs, 5))
