@@ -12,7 +12,7 @@ import torch.nn as nn
 import numpy as np
 
 class EquivModel(torch.nn.Module):
-    def __init__(self, irreps_in=Irreps("1e"), irreps_out=Irreps("0e + 1e + 2e"), lmax=2, segment=False) -> None:
+    def __init__(self, irreps_in=Irreps("0e"), irreps_out=Irreps("5x0e"), lmax=2, segment=False) -> None:
         super().__init__()
         self.irreps_in = irreps_in
         self.irreps_out = irreps_out
@@ -28,29 +28,48 @@ class EquivModel(torch.nn.Module):
                                       {self.irreps_coef[5]}x2o + \
                                       {self.irreps_coef[6]}x3e + \
                                       {self.irreps_coef[7]}x3o").simplify()
+        #irreps after downsample
+        self.irreps_down = o3.Irreps(f"{self.irreps_coef[0]}x0e + \
+                                       {self.irreps_coef[1]}x0o + \
+                                       {int(self.irreps_coef[2]>0)}x1e + \
+                                       {int(self.irreps_coef[3]>0)}x1o + \
+                                       {int(self.irreps_coef[4]>0)}x2e + \
+                                       {int(self.irreps_coef[5]>0)}x2o + \
+                                       {int(self.irreps_coef[6]>0)}x3e + \
+                                       {int(self.irreps_coef[7]>0)}x3o").simplify()
         self.segment = segment
         self.network_initialization()
         self.weight_initialization()
 
     def network_initialization(self):
         blocks = []
-        diameters = [7, 3, 3, 3, 3, 3, 3]
+        diameters = [7, 3, 3, 3, 3, 3, 3, 3]
+        downsample_locations = [1,5]
+        
         steps = [(1.0, 1.0, 1.0),
                  (1.0, 1.0, 1.0),
                  (1.0, 1.0, 1.0),
                  (1.0, 1.0, 1.0),
                  (1.0, 1.0, 1.0),
                  (1.0, 1.0, 1.0),
+                 (1.0, 1.0, 1.0),
+                 (1.0, 1.0, 1.0),
                  (1.0, 1.0, 1.0)]
+        
 
         for i, (diameter, step) in enumerate(zip(diameters, steps)):
+            print(i, self.irreps_in)
             blocks.append(EquivariantConvolutionBlock(self.irreps_in,
                                                       self.irreps_mid,
                                                       self.irreps_sh,
                                                       diameter,
                                                       step,
                                                       self.activation))
-            self.irreps_in = self.irreps_mid  # update input irreps for next block to irreps_mid
+            if i in downsample_locations:
+                blocks.append(EquivariantDownSample(self.irreps_mid, kernel_size=3, stride=3))
+                self.irreps_in = self.irreps_down
+            else:
+                self.irreps_in = self.irreps_mid  # update input irreps for next block to irreps_mid
 
         blocks.append(EquivariantConvolutionBlock(self.irreps_mid,
                                                   self.irreps_out,
@@ -64,19 +83,12 @@ class EquivModel(torch.nn.Module):
 
         self.global_pool = ME.MinkowskiGlobalAvgPooling()
 
-        self.downsample = EquivariantDownSample(reduction_size=3)
-
     def forward(self, data) -> torch.Tensor:
-        #for i in range(len(self.blocks)):
-        data = self.downsample(data)
-
-            # data = self.blocks[i](data)
-
-            # if i in [2, 4, 5]:
-            #     data = self.down_sample(data)
+        for i in range(len(self.blocks)):
+            data = self.blocks[i](data)
+            
         if not self.segment:
             data = self.global_pool(data)
-        # x = self.softmax(x)
         return data
 
     def weight_initialization(self):

@@ -279,13 +279,12 @@ class EquivariantDownSample(torch.nn.Module):
         self.pooling_mode = pooling_mode
         self.max_pool = MinkowskiMaxPooling(kernel_size=kernel_size, stride=stride, dimension=3)
         self.avg_pool = MinkowskiAvgPooling(kernel_size=kernel_size, stride=stride, dimension=3)
-        assert input.F.shape[1] == irreps.dim, "Shape mismatch"
 
     def forward(self, input):
+        assert input.F.shape[1] == self.irreps.dim, "Shape mismatch"
         cat_list = []
 
         start = 0
-        max_pool = ME.MinkowskiMaxPooling(kernel_size=kernel_size, stride=stride, dimension=dim)
         for i in self.irreps.ls:
     
             end = start + 2*i+1
@@ -303,7 +302,7 @@ class EquivariantDownSample(torch.nn.Module):
         stacked_features = torch.cat(cat_list, dim=1)
     
         # create a sparse tensor from the stacked features
-        stacked_tensors = ME.SparseTensor(coordinates=input.C, features=stacked_features)
+        stacked_tensors = SparseTensor(coordinates=input.C, features=stacked_features)
 
         # perform pooling on the stacked tensor
         if self.pooling_mode == "max":
@@ -358,7 +357,7 @@ class EquivariantConvolutionBlock(torch.nn.Module):
         output = self.conv(input)
         output = self.activation(output)
         output = self.BN(output)
-
+        
         return output
 
 

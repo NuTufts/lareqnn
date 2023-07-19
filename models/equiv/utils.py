@@ -22,15 +22,7 @@ def np_loader(inp):
 
 
 def rotate_sparse_tensor(x, irreps, abc, device):
-    """Perform a rotation of angles abc to a sparse tensor
-    Args:
-        x: A SparseTensor object representing the input tensor to be rotated
-        irreps: A representation object representing the irreps to be applied to the features
-        abc: A tuple of angles a, b, and c representing the rotation angles
-        device: A string specifying the device to run the computation on
-    Returns:
-        A new SparseTensor object with rotated coordinates and features
-    """
+    """Perform a rotation of angles abc to a sparse tensor"""
 
     coordinates = x.C[:, 1:].to(x.F.dtype).to(device)
     coordinates = torch.einsum("ij,bj->bi", Irreps("1e").D_from_angles(*abc).to(device), coordinates)
@@ -43,10 +35,10 @@ def rotate_sparse_tensor(x, irreps, abc, device):
     features = x.F.to(device)
     features = torch.einsum("ij,bj->bi", irreps.D_from_angles(*abc).to(device), features)
 
-    return SparseTensor(coordinates=coordinates, features=features)
+    return SparseTensor(coordinates=coordinates, features=features, coordinate_manager=x.coordinate_manager)
 
 
-def test_equivariance(input, model, rotations_list, irreps_in, irreps_out, mode="max", device=torch.device("cpu")):
+def test_equivariance(input, model, rotations_list, irreps_in, irreps_out, mode="mean", device=torch.device("cpu")):
     """
     Test equivariance of a model
 
@@ -60,7 +52,7 @@ def test_equivariance(input, model, rotations_list, irreps_in, irreps_out, mode=
         device (torch.device): device
     """
     print("Testing equivariance:")
-    print("Rotation i error: max(abs(y - y_rotated)) < 1e-6 * max(abs(y))")
+    print(f"Rotation i error: {mode}(abs(y - y_rotated)) < 1e-6 * max(abs(y))")
 
     model = model.to(device)
 
@@ -72,6 +64,12 @@ def test_equivariance(input, model, rotations_list, irreps_in, irreps_out, mode=
 
         output_model = model(input)
         output_rotated = rotate_sparse_tensor(output_model, irreps_out, rotation_tensor, device)
+        #temporary fix
+        rotated_output_model = SparseTensor(coordinates=rotated_output_model.C, features=rotated_output_model.F,
+                                            coordinate_manager=input.coordinate_manager)
+        output_rotated = SparseTensor(coordinates=output_rotated.C, features=output_rotated.F,
+                                      coordinate_manager=input.coordinate_manager)
+
 
         diff = (rotated_output_model - output_rotated).F.abs()
 

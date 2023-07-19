@@ -31,7 +31,7 @@ def main():
     segment = True
     epochs = 2000
 
-    data_directory = "../PilarData/Train/"
+    data_directory = "../../../PilarData/Train"
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
