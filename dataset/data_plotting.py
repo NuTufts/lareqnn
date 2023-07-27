@@ -9,41 +9,32 @@ import torch
 import os
 
 
-def plot3d_interactive(data, label=None, tight_range=False, set_range = None, colorbar=True, show_ticks = True, show_grid = True, nticks = 5, offset=15, show_fig=True, save=False, save_loc = None, gif_index = None):
+def plot3d_interactive(data, label=None, tight_range=False, set_range=None, colorbar=True, show_ticks=True,
+                       show_grid=True, nticks=5, offset=15, show_fig=True, save=False, save_loc=None, gif_index=None):
     """
-        Args:
-            data: data in the form of a numpy array [x, y, z, charge] has dim [1, N, 4]
-            label: label of data (for title)
-            tight_range: if True, fit range when plotting to data
-            rotation_range: if True, make range such that the axis go from -coord_max to coord_max
-            colorbar: if True, show colorbar
-            show_ticks: if True, show ticks
-            show_grid: if True, show grid
-            nticks: number of ticks
-            offset: offset for normalization
-            show_fig: if True, show plot
-            save: if True, save plot
-            save_loc: location to save plot inside plots folder
-            gif_index: index of picture in gif
+    Args:
+        data (numpy.array): Data in the form of a numpy array [x, y, z, charge] has dim [1, N, 4].
+        label (str): Label of data (for title).
+        tight_range (bool): If True, fit range when plotting to data, adjusted by the offset.
+        set_range (tuple): Set range for the axis manually, overrides tight_range if provided.
+        colorbar (bool): If True, show colorbar.
+        show_ticks (bool): If True, show ticks.
+        show_grid (bool): If True, show grid.
+        nticks (int): Number of ticks.
+        offset (float or int): Offset for normalization.
+        show_fig (bool): If True, show plot.
+        save (bool): If True, save plot.
+        save_loc (str): Location to save plot inside plots folder.
+        gif_index (int): Index of picture in gif.
 
-        Returns:
-            0 if successful
-
-        """
-
+    Returns:
+        int: 0 If function is successful.
+    """
     pos3d = data[0][:, :-1].numpy()
     pos3d_x, pos3d_y, pos3d_z = pos3d.T
-
     charge = data[0][:, -1].numpy()
 
-    if colorbar:
-        colorbar = dict(
-            title="Charge"
-        )
-    else:
-        colorbar = dict(
-            title=None
-        )
+    colorbar = dict(title="Charge") if colorbar else dict(title=None)
 
     fig = go.Figure(data=[go.Scatter3d(
         x=pos3d_x,
@@ -52,9 +43,9 @@ def plot3d_interactive(data, label=None, tight_range=False, set_range = None, co
         mode='markers',
         marker=dict(
             size=1,
-            color=charge,  # set color to an array/list of desired values
+            color=charge,
             colorbar=colorbar,
-            colorscale='Viridis',  # choose a colorscale
+            colorscale='Viridis',
             opacity=0.9
         )
     )])
@@ -63,12 +54,13 @@ def plot3d_interactive(data, label=None, tight_range=False, set_range = None, co
         center=dict(x=0, y=0, z=0),
         eye=dict(x=1.5, y=0.5, z=0.1)
     )
-    range = [0, 512]
+    axis_range = (0, 512)
+
     scene = dict(aspectratio=dict(x=0.7, y=0.7, z=0.7),
-                 xaxis = dict(range=range, nticks=nticks, showgrid = show_grid, showticklabels=show_ticks),
-                 yaxis = dict(range=range, nticks=nticks, showgrid = show_grid, showticklabels=show_ticks),
-                 zaxis = dict(range=range, nticks=nticks, showgrid = show_grid,showticklabels=show_ticks)
-    )
+                 xaxis=dict(range=axis_range, nticks=nticks, showgrid=show_grid, showticklabels=show_ticks),
+                 yaxis=dict(range=axis_range, nticks=nticks, showgrid=show_grid, showticklabels=show_ticks),
+                 zaxis=dict(range=axis_range, nticks=nticks, showgrid=show_grid, showticklabels=show_ticks)
+                 )
 
     if set_range is not None:
         scene["xaxis"]["range"] = set_range
@@ -78,17 +70,17 @@ def plot3d_interactive(data, label=None, tight_range=False, set_range = None, co
     elif tight_range:
         min_pos = pos3d.min(axis=0)
         max_pos = pos3d.max(axis=0)
-        range = np.vstack((min_pos, max_pos)).T
-        range.T[0] -= offset
-        range.T[1] += offset
-        scene["xaxis"]["range"] = range[0]
-        scene["yaxis"]["range"] = range[1]
-        scene["zaxis"]["range"] = range[2]
+        axis_range = np.vstack((min_pos, max_pos)).T
+        axis_range.T[0] -= offset
+        axis_range.T[1] += offset
+        scene["xaxis"]["range"] = axis_range[0]
+        scene["yaxis"]["range"] = axis_range[1]
+        scene["zaxis"]["range"] = axis_range[2]
     else:
-        range = [0, 512]
-        scene["xaxis"]["range"] = range
-        scene["yaxis"]["range"] = range
-        scene["zaxis"]["range"] = range
+        axis_range = [0, 512]
+        scene["xaxis"]["range"] = axis_range
+        scene["yaxis"]["range"] = axis_range
+        scene["zaxis"]["range"] = axis_range
 
     fig.update_layout(
         title=label,
