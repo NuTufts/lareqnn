@@ -195,6 +195,99 @@ def plot_all_projections(data, label=None, offset=20, save=False):
     return 0
 
 
+def plot_all_projections_diff(data, model, rotation, irreps_in, irreps_out, label=None, offset=20, save=False,
+                         device=torch.device("cpu")):
+    """
+    Args:
+        data: data in the form of a numpy array [x, y, z, charge] has dim [N, 4]
+        model: The model to be used for predictions
+        rotation: The rotation to be applied
+        irreps_in: The input irreps
+        irreps_out: The output irreps
+        label: data label
+        offset: amount of offset to add to the axes
+        save: true if plots should be saved
+        device: device to use for computations
+
+    Returns:
+        0 if successful
+    """
+    # Compute the data for each row
+    rotation_tensor = torch.tensor(rotation)
+    data_first_row = rotate_sparse_tensor(model(data), irreps_out, rotation_tensor, device)
+    data_second_row = model(rotate_sparse_tensor(data, irreps_in, rotation_tensor, device))
+    data_third_row = (data_second_row - data_first_row) / data_first_row.F.abs().max()
+
+    equiv_error = 1 - (data_third_row.F.abs().mean() / data_first_row.F.abs().max())
+
+    # Combine all the data into a list
+    all_data = [data_first_row, data_second_row, data_third_row]
+
+    # Create subplots
+    fig, axs = plt.subplots(3, 3, figsize=(20, 12))
+
+    plt.subplots_adjust(top=0.92)
+
+    # Set title
+    if label is not None:
+        fig.suptitle(
+            f"Equivariance for {label} at rotation ({rotation[0]:.2f}, {rotation[1]:.2f}, {rotation[2]:.2f}): {equiv_error:.2f}",
+            fontsize=18)
+    else:
+        fig.suptitle(
+            f"Equivariance at rotation ({rotation[0]:.2f}, {rotation[1]:.2f}, {rotation[2]:.2f}): {equiv_error:.2f}",
+            fontsize=18)
+
+    # Mapping for axis labels
+    axes_labels = ['x', 'y', 'z']
+
+    for row in range(3):
+        data = all_data[row]
+        charges = data.F.cpu().numpy().reshape(-1)
+        pos3d = data.C[:, 1:].cpu().numpy()
+        for col in range(3):
+            # setup different color map for diff
+            if row != 2:
+                colormap = "cividis"
+                divnorm = colors.Normalize(vmin=0., vmax=charges.max())
+            else:
+                colormap = "seismic"
+                if charges.min() == 0:  # if no diff
+                    divnorm = colors.Normalize(vmin=-charges.max(), vmax=charges.max())
+                else:
+                    divnorm = colors.TwoSlopeNorm(vmin=charges.min(), vcenter=0., vmax=charges.max())
+            pos3d_projected = np.delete(pos3d, col, 1)
+            axis1_range = [pos3d_projected[:, 0].min() - offset, pos3d_projected[:, 0].max() + offset]
+            axis2_range = [pos3d_projected[:, 1].min() - offset, pos3d_projected[:, 1].max() + offset]
+            h = axs[row, col].hist2d(pos3d_projected[:, 0], pos3d_projected[:, 1], weights=charges,
+                                     range=[axis1_range, axis2_range],
+                                     bins=[int(axis1_range[1] - axis1_range[0]),
+                                           int(axis2_range[1] - axis2_range[0])],
+                                     cmap=colormap, norm=divnorm)
+            if row == 0:
+                axs[row, col].set_title(f"projection on {axes_labels[col]} axis")
+            if row != 2:
+                fig.colorbar(h[3], ax=axs[row, col], label=r"$\sqrt{charge}$")
+            else:
+                fig.colorbar(h[3], ax=axs[row, col])
+
+            # add both axis labels for each column and row using axes_labels
+            axis_labels2 = axes_labels.copy()
+            del axis_labels2[col]
+            axs[row, col].set_xlabel(axis_labels2[0])
+            axs[row, col].set_ylabel(axis_labels2[1])
+
+        # Add a title for each row
+        row_titles = ["rot(model(data))", f"model(rot(data))", "diff"]
+        axs[row, 0].set_ylabel(row_titles[row], fontsize=14)
+
+    if save:
+        now = datetime.now().strftime("%Y_%m_%d_%H_%M_%S")
+        plt.savefig(f"plots/{now}_{label}.png", dpi=300)
+
+    return 0
+
+
 def rotate_data_non_minkowski(data, angles):
     """
 
