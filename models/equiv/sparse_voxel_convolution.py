@@ -10,7 +10,7 @@ from e3nn.o3 import FullyConnectedTensorProduct, Linear, Irreps
 from e3nn.nn import BatchNorm, Activation, Gate
 
 try:
-    from MinkowskiEngine import KernelGenerator, MinkowskiConvolutionFunction, SparseTensor, MinkowskiInterpolation,\
+    from MinkowskiEngine import KernelGenerator, MinkowskiConvolutionFunction, SparseTensor, MinkowskiInterpolation, \
         MinkowskiMaxPooling, MinkowskiAvgPooling
     from MinkowskiEngineBackend._C import ConvolutionMode
 except ImportError:
@@ -18,31 +18,23 @@ except ImportError:
 
 
 class Convolution(torch.nn.Module):
-    r"""convolution on voxels
+    """convolution on voxels.
 
-    Parameters
-    ----------
-    irreps_in : `e3nn.o3.Irreps`
-        input irreps
+    Args:
+        irreps_in (e3nn.o3.Irreps): The input irreps.
+        irreps_out (e3nn.o3.Irreps): The output irreps.
+        irreps_sh (e3nn.o3.Irreps): The irreps set, typically set to ``o3.Irreps.spherical_harmonics(lmax)``.
+        diameter (float): Diameter of the filter in physical units.
+        num_radial_basis (int): Number of radial basis functions.
+        steps (tuple of float): Size of the pixel in physical units.
+        no_linear (bool): If True, the Linear layer is skipped and only a residual connection is used.
+          (use only when irreps_in and irreps_out are the same)
 
-    irreps_out : `e3nn.o3.Irreps`
-        output irreps
+    Returns:
+        The result after performing the convolution on the input voxels.
 
-    irreps_sh : `e3nn.o3.Irreps`
-        set typically to ``o3.Irreps.spherical_harmonics(lmax)``
-
-    diameter : float
-        diameter of the filter in physical units
-
-    num_radial_basis : int
-        number of radial basis functions
-
-    steps : tuple of float
-        size of the pixel in physical units
-
-    no_linear : bool
-        if True, the Linear layer is skipped and only a residual connection is used. (use only when irreps_in and
-        irreps_out are the same)
+    Raises:
+        ValueError: If the provided input parameters are incorrect.
     """
 
     def __init__(self, irreps_in, irreps_out, irreps_sh, diameter, num_radial_basis, steps=(1.0, 1.0, 1.0),
@@ -119,13 +111,11 @@ class Convolution(torch.nn.Module):
 
     def forward(self, x):
         r"""
-        Parameters
-        ----------
-        x : SparseTensor
+        Args:
+            x (SparseTensor): The SparseTensor to be convolved.
 
-        Returns
-        -------
-        SparseTensor
+        Returns:
+            SparseTensor
         """
         if self.no_linear:
             sc = x.F
@@ -206,7 +196,7 @@ class EquivariantBatchNorm(torch.nn.Module):
 class EquivariantActivation(torch.nn.Module):
     r"""An equivariant activation layer for a sparse tensor. Uses Gate
 
-    Parameters:
+    Args:
         irreps (Irreps): the irreps of the input
         acts (list of function): list of the activation function to use (Make sure even activations).
         To set up odd activations, modify this function and change irreps_gates
@@ -259,18 +249,18 @@ class EquivariantActivation(torch.nn.Module):
 class EquivariantDownSample(torch.nn.Module):
     r"""An equivariant downsampling layer for a sparse tensor. 
 
-    Parameters:
+    Args:
         irreps (Irreps): the irreps of the input
         kernel_size (int): kernel size for the pooling layer
         stride (int): stride length for the pooling
         """
 
     def __init__(
-        self,
-        irreps,
-        kernel_size,
-        stride,
-        pooling_mode = "max"
+            self,
+            irreps,
+            kernel_size,
+            stride,
+            pooling_mode="max"
     ):
         super(EquivariantDownSample, self).__init__()
         self.irreps = irreps
@@ -286,21 +276,20 @@ class EquivariantDownSample(torch.nn.Module):
 
         start = 0
         for i in self.irreps.ls:
-    
-            end = start + 2*i+1
-            temp = input.F[:,start:end,...]
+            end = start + 2 * i + 1
+            temp = input.F[:, start:end, ...]
             if i == 0:
                 cat_list.append(temp)
             else:
                 # stack the features and their norms together
                 norm = temp.norm(dim=1, keepdim=True)
                 cat_list.append(norm)
-    
+
             start = end
-    
+
         # stack all tensors along the feature dimension
         stacked_features = torch.cat(cat_list, dim=1)
-    
+
         # create a sparse tensor from the stacked features
         stacked_tensors = SparseTensor(coordinates=input.C, features=stacked_features)
 
@@ -311,9 +300,8 @@ class EquivariantDownSample(torch.nn.Module):
             pooled_tensors = self.avg_pool(stacked_tensors)
         else:
             raise ValueError(f"Unknown mode {mode}")
-    
-        return pooled_tensors
 
+        return pooled_tensors
 
     def __repr__(self):
         s = "(irreps={}, kernel_size={}, stride={}, pooling_mode={})".format(
@@ -357,7 +345,7 @@ class EquivariantConvolutionBlock(torch.nn.Module):
         output = self.conv(input)
         output = self.activation(output)
         output = self.BN(output)
-        
+
         return output
 
 
@@ -388,6 +376,3 @@ class EquivariantSoftMax(torch.nn.Module):
             self.softmax.dim,
         )
         return self.__class__.__name__ + s
-
-
-

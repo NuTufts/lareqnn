@@ -38,14 +38,14 @@ def rotate_sparse_tensor(x, irreps, abc, device):
     return SparseTensor(coordinates=coordinates, features=features, coordinate_manager=x.coordinate_manager)
 
 
-def test_equivariance(input, model, rotations_list, irreps_in, irreps_out, mode="mean", device=torch.device("cpu")):
+def test_equivariance(input_tensor, model, rotations_list, irreps_in, irreps_out, mode="mean", device=torch.device("cpu")):
     """
     Test equivariance of a model
 
     Args:
-        input (torch.Tensor): input tensor
+        input_tensor (ME.SparseTensor): input tensor
         model (torch.nn.Module): model
-        rotations_list (list): list of rotations
+        rotations_list (list of lists): list of rotations
         irreps_in (e3nn.o3.Irreps): input irreps
         irreps_out (e3nn.o3.Irreps): output irreps
         mode (str): "max" or "mean"
@@ -54,38 +54,64 @@ def test_equivariance(input, model, rotations_list, irreps_in, irreps_out, mode=
     print("Testing equivariance:")
     print(f"Rotation i error: {mode}(abs(y - y_rotated)) < 1e-6 * max(abs(y))")
 
-    model = model.to(device)
-
     for i, rotation in enumerate(rotations_list):
-        rotation_tensor = torch.tensor(rotation)
+        error, relative_max = get_equiv_error(input_tensor,
+                                              model,
+                                              rotation,
+                                              irreps_in,
+                                              irreps_out,
+                                              mode,
+                                              device,
+                                              return_max=True)
 
-        rotated_input = rotate_sparse_tensor(input, irreps_in, rotation_tensor, device)  # rotate input
-        rotated_output_model = model(rotated_input)
-
-        output_model = model(input)
-        output_rotated = rotate_sparse_tensor(output_model, irreps_out, rotation_tensor, device)
-        #temporary fix
-        rotated_output_model = SparseTensor(coordinates=rotated_output_model.C, features=rotated_output_model.F,
-                                            coordinate_manager=input.coordinate_manager)
-        output_rotated = SparseTensor(coordinates=output_rotated.C, features=output_rotated.F,
-                                      coordinate_manager=input.coordinate_manager)
-
-
-        diff = (rotated_output_model - output_rotated).F.abs()
-
-        if mode == "max":
-            diff = diff.max()
-        elif mode == "mean":
-            diff = diff.mean()
+        if error < 1e-6 * relative_max:
+            print(f"Rotation {i} error: {error:.2e} < 1e-6 * {relative_max:.2e}")
         else:
-            raise ValueError(f"Unknown mode {mode}")
+            print(f"FAILED: Rotation {i} error: {error:.2e} > 1e-6 * {relative_max:.2e}")
 
-        relative_max = 1e-6 * output_rotated.F.abs().max()
 
-        if diff <= relative_max:
-            print(f"Rotation {i} error: {diff:.2e} < {relative_max:.2e}")
-        else:
-            print(f"FAILED: Rotation {i} error: {diff:.2e} > {relative_max:.2e}")
+def get_equiv_error(input_tensor, model, rotation, irreps_in, irreps_out, mode="mean", device=torch.device("cpu"),
+                    return_max=False):
+    """
+    Get rotation equivariance error of a model
+
+    Args:
+        input_tensor (ME.SparseTensor): input tensor
+        model (torch.nn.Module): model
+        rotation (list): rotation
+        irreps_in (e3nn.o3.Irreps): input irreps
+        irreps_out (e3nn.o3.Irreps): output irreps
+        mode (str): "max" or "mean"
+        device (torch.device): device
+        return_max (bool): return max value of output_rotated.F.abs()
+    """
+    model = model.to(device)
+    rotation_tensor = torch.tensor(rotation)
+
+    rotated_input = rotate_sparse_tensor(input_tensor, irreps_in, rotation_tensor, device)  # rotate input
+    rotated_output_model = model(rotated_input)
+
+    output_model = model(input_tensor)
+    output_rotated = rotate_sparse_tensor(output_model, irreps_out, rotation_tensor, device)
+    # temporary fix
+    rotated_output_model = SparseTensor(coordinates=rotated_output_model.C, features=rotated_output_model.F,
+                                        coordinate_manager=input_tensor.coordinate_manager)
+    output_rotated = SparseTensor(coordinates=output_rotated.C, features=output_rotated.F,
+                                  coordinate_manager=input_tensor.coordinate_manager)
+
+    diff = (rotated_output_model - output_rotated).F.abs()
+
+    if mode == "max":
+        diff = diff.max()
+    elif mode == "mean":
+        diff = diff.mean()
+    else:
+        raise ValueError(f"Unknown mode {mode}")
+
+    if return_max:
+        return diff, output_rotated.F.abs().max()
+
+    return diff
 
 
 def get_batch_jumps(sparse_tensor):

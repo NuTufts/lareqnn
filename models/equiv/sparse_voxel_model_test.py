@@ -28,10 +28,11 @@ rotations = [
 def main():
     irreps_in = Irreps("0e")  # Single Scalar
     irreps_out = Irreps("5x0e")  # 5 labels
-    segment = True
+    segment = False #keep false if downsampling
     epochs = 2000
+    lr = 1e-2
 
-    data_directory = "../../../PilarData/Train"
+    data_directory = "../PilarData/Train"
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -76,6 +77,8 @@ def main():
 
     coords, feats, labels = collated_data
 
+    print(len(labels))
+    
     print(f"collated_data: {collated_data=}")
 
     print(f"{labels=}")
@@ -101,7 +104,7 @@ def main():
 
     loss_fn = nn.CrossEntropyLoss(weight=weights.to(device))
 
-    optim = torch.optim.Adam(model.parameters(), lr=5e-3, weight_decay=1e-2)
+    optim = torch.optim.Adam(model.parameters(), lr=lr, weight_decay=1e-2)
 
     losses = np.zeros(epochs)
     accuracies = np.zeros((epochs, 5))
@@ -117,10 +120,10 @@ def main():
                 param_max = param.abs().max()
                 param_max_name = name
 
-        # if step == 1000:
-        #     optim.param_groups[0]['lr'] = 0.001
-        # if step == 1800:
-        #     optim.param_groups[0]['lr'] = 0.001
+        if step == 500:
+            optim.param_groups[0]['lr'] = 0.005
+        if step == 1000:
+            optim.param_groups[0]['lr'] = 0.001
 
         loss = loss_fn(pred.F, labels)
         # loss = (torch.argmax(pred, dim=-1) - label).pow(2).mean()
