@@ -17,22 +17,24 @@ from dataset.lartpcdataset import lartpcDatasetSparse
 
 if __name__ == '__main__':
     # Sweep parameters
-    config_loc = "configs/default_config.yaml"
+    workdir = "/n/holystore01/LABS/iaifi_lab/Users/oalterkait/lareqnn/"
+    config_loc = workdir+"configs/default_config.yaml"
 
     with open(config_loc, "r") as yaml_file:
         hyperparameter_defaults = yaml.safe_load(yaml_file)
 
-    # wandb.init(config=hyperparameter_defaults)
+    wandb.init(config=hyperparameter_defaults)
     # Config parameters are automatically set by W&B sweep agent
     config = hyperparameter_defaults
-    # config = hyperparameter_defaults
 
     wandb_logger = WandbLogger(project=config["project"])
 
-    wandb_logger.log_hyperparams(config)
+    #wandb_logger.log_hyperparams(config)
 
     #pl.seed_everything(42, workers=True)
 
+    torch.set_float32_matmul_precision('high')
+    
     DEVICE = torch.device("cuda")
     # DEVICE = torch.device("cpu")
 
@@ -71,12 +73,12 @@ if __name__ == '__main__':
 
     lr_monitor = pl.callbacks.LearningRateMonitor(logging_interval='step')
     checkpoint_callback = pl.callbacks.ModelCheckpoint(monitor='val_loss', save_top_k=1, mode='min', every_n_epochs=100)
-    # early_stopping = pl.callbacks.EarlyStopping('val_loss', patience=20)
+    early_stopping = pl.callbacks.EarlyStopping('val_loss', patience=20)
     # monitor = ModuleDataMonitor(submodules=True)
 
     trainer = pl.Trainer(accelerator='gpu',
                          devices=config["gpus"],
-                         strategy='ddp',
+                         strategy='auto',
                          precision=32,
                          accumulate_grad_batches=config["grad_batches"],
                          # deterministic=True,
@@ -88,7 +90,7 @@ if __name__ == '__main__':
                          gradient_clip_val=config["grad_clip"],
                          limit_train_batches=config["steps_per_epoch"],
                          limit_val_batches=100,
-                         callbacks=[lr_monitor, checkpoint_callback])
+                         callbacks=[lr_monitor, checkpoint_callback, early_stopping])
     #                    callbacks=[lr_monitor, early_stopping])
     # callbacks=[monitor])
 
