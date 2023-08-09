@@ -1,3 +1,4 @@
+import os, sys
 import yaml
 import torch
 from torchvision import transforms
@@ -12,35 +13,44 @@ import wandb
 from engine_lightning import LitEngineResNetSparse
 from dataset.lartpcdataset import lartpcDatasetSparse
 
-# from dataset.data_utils import SparseToFull, PreProcess, AddNoise
+from dataset.data_utils import SparseToFull, PreProcess, AddNoise
 
 
 if __name__ == '__main__':
     # Sweep parameters
-    workdir = "/n/holystore01/LABS/iaifi_lab/Users/oalterkait/lareqnn/"
-    config_loc = workdir+"configs/default_config.yaml"
+    workdir = os.path.dirname(os.path.abspath(sys.argv[0]))
+    
+    config_loc = workdir+"/configs/default_config.yaml"
 
     with open(config_loc, "r") as yaml_file:
         hyperparameter_defaults = yaml.safe_load(yaml_file)
-
-    wandb.init(config=hyperparameter_defaults)
+   
+    # wandb.init(config=hyperparameter_defaults)
     # Config parameters are automatically set by W&B sweep agent
     config = hyperparameter_defaults
+    # config = hyperparameter_defaults
 
     wandb_logger = WandbLogger(project=config["project"])
 
-    #wandb_logger.log_hyperparams(config)
+    wandb_logger.log_hyperparams(config)
 
     #pl.seed_everything(42, workers=True)
 
-    torch.set_float32_matmul_precision('high')
-    
     DEVICE = torch.device("cuda")
     # DEVICE = torch.device("cpu")
 
-    train_transform = transforms.Compose([
+    PreProcess = PreProcess(config["normalize"],
+                            config["clip"],
+                            config["sqrt"],
+                            config["norm_mean"],
+                            config["norm_std"],
+                            config["clip_min"],
+                            config["clip_max"])
+    AddNoise = AddNoise()
+
+    train_transform = transforms.Compose([PreProcess, AddNoise
     ])
-    valid_transform = transforms.Compose([
+    valid_transform = transforms.Compose([PreProcess
     ])
     #dataset = lartpcDatasetSparse(root=config["train_datapath"], transform=data_transform, device=DEVICE)
     train_dataset = lartpcDatasetSparse(root=config["train_datapath"], transform=train_transform, device=DEVICE)

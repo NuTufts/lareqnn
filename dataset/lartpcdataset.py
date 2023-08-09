@@ -30,15 +30,17 @@ class lartpcDatasetSparse(torchvision.datasets.DatasetFolder):
         """
         path, target = self.samples[index]
         sample = self.loader(path)
+        coords = torch.from_numpy(sample[:, :-1])
+        feat = torch.from_numpy(sample[:, -1])
+        label = torch.tensor([target])
+        sample = coords, feat
+        
         if self.transform is not None:
             sample = self.transform(sample)
         if self.target_transform is not None:
             target = self.target_transform(target)
-        coords = torch.from_numpy(sample[:, :-1])
-        feat = torch.from_numpy(sample[:, -1])
-        label = torch.tensor([target])
 
-        return coords, feat, label
+        return *sample, label
 
 
 if __name__ == "__main__":

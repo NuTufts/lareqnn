@@ -73,14 +73,15 @@ class PreProcess(object):
             if name != "self" and name != "hparams":
                 setattr(self, name, value)
 
-    def __call__(self, feat):
+    def __call__(self, batch):
         """
         Args:
-            feat: features to process
+            batch: coords, feat to process
 
         Returns:
-            feat: processed features
+            batch: processed batch
         """
+        coords, feat = batch
         feat = feat.float()
         if self.sqrt:
             torch.sqrt(feat, out=feat)  # Take in place square root of tensor
@@ -89,7 +90,7 @@ class PreProcess(object):
             torch.div(feat, self.norm_std, out=feat)  # divide by std
         if self.clip:
             torch.clamp(feat, self.clip_min, self.clip_max, out=feat)
-        return feat
+        return coords, feat
 
     def __repr__(self) -> str:
         return f"{self.__class__.__name__}(norm={self.norm}, sqrt={self.sqrt}, clip={self.clip}, mean={self.norm_mean}, std={self.norm_std}, clip_min={self.clip_min}, clip_max={self.clip_max})"
@@ -104,31 +105,34 @@ class AddNoise(object):
         full (bool): true if data is not in sparse form
     """
 
-    def __init__(self, device, noise_mean=0.0, noise_std=0.1, full=False):
+    def __init__(self, noise_mean=0.0, noise_std=0.1, full=False):
         super().__init__()
         assert isinstance(noise_mean, float)
         assert isinstance(noise_std, float)
         self.noise_mean = noise_mean
         self.noise_std = noise_std
         self.full = full
-        self.device = device
 
-    def __call__(self, tensor):
+    def __call__(self, batch):
         """
         Args:
-            tensor to add noise to
+            batch: batch to add noise to
 
         Returns:
-            Tensor: tensor with noise
+            batch: tensor with noise
         """
+        coords, feat = batch
         if self.full:
-            noise = torch.normal(self.noise_mean, self.noise_std, size=tensor.shape)
-
-            return tensor + noise
+            noise = torch.normal(self.noise_mean, self.noise_std, size=feat.shape)
+            feat = feat + noise
+            
+            return coords, feat
 
         else:
-            noise = torch.normal(self.noise_mean, self.noise_std, size=[tensor.shape[0]]).to(self.device)
-            return tensor + noise
+            noise = torch.normal(self.noise_mean, self.noise_std, size=[feat.shape[0]]).to(feat.device)
+            feat = feat + noise
+
+            return coords, feat
 
     def __repr__(self) -> str:
         return f"{self.__class__.__name__}(Noise mean={self.noise_mean}, Noise std={self.noise_std})"

@@ -48,15 +48,6 @@ class LitEngineResNetSparse(pl.LightningModule):
         self.train_conf = torchmetrics.ConfusionMatrix(task="multiclass", num_classes=5)
         self.valid_conf = torchmetrics.ConfusionMatrix(task="multiclass", num_classes=5)
 
-        self.PreProcess = PreProcess(hparams["normalize"],
-                                     hparams["clip"],
-                                     hparams["sqrt"],
-                                     hparams["norm_mean"],
-                                     hparams["norm_std"],
-                                     hparams["clip_min"],
-                                     hparams["clip_max"]
-                                     )
-        self.AddNoise = AddNoise(self.device)
 
         if hparams["model"] == "ResNet14":
             self.model = resnet.ResNet14(in_channels=1, out_channels=5, D=3)
@@ -124,9 +115,6 @@ class LitEngineResNetSparse(pl.LightningModule):
 
     def training_step(self, train_batch, batch_idx):
         coords, feats, labels = train_batch  # data batch, labels
-        feats = self.PreProcess(feats)
-        self.AddNoise.device = self.device
-        feats = self.AddNoise(feats)
         stensor = ME.SparseTensor(coordinates=coords, features=feats.unsqueeze(dim=-1).float())
         z = self.model(stensor)
         loss = self.calc_loss(z.F, labels.long())
@@ -156,7 +144,6 @@ class LitEngineResNetSparse(pl.LightningModule):
 
     def validation_step(self, val_batch, batch_idx):
         coords, feats, labels = val_batch
-        feats = self.PreProcess(feats)
         stensor = ME.SparseTensor(coordinates=coords, features=feats.unsqueeze(dim=-1).float())
         z = self.model(stensor)
         loss = self.calc_loss(z.F, labels.long())
