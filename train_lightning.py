@@ -48,13 +48,13 @@ if __name__ == '__main__':
                             config["clip_max"])
     AddNoise = AddNoise()
 
-    train_transform_cpu = transforms.Compose([PreProcess, AddNoise
+    train_transform_gpu = transforms.Compose([PreProcess, AddNoise
     ])
-    valid_transform_cpu = transforms.Compose([PreProcess
+    valid_transform_gpu = transforms.Compose([PreProcess
     ])
-    train_transform_gpu = transforms.Compose([
+    train_transform_cpu = transforms.Compose([
                                                   ])
-    valid_transform_gpu = transforms.Compose([
+    valid_transform_cpu = transforms.Compose([
                                                   ])
     #dataset = lartpcDatasetSparse(root=config["train_datapath"], transform=data_transform, device=DEVICE)
     train_dataset = lartpcDatasetSparse(root=config["train_datapath"], transform=train_transform_cpu, device=DEVICE)
