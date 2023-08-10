@@ -24,6 +24,8 @@ class LitEngineResNetSparse(pl.LightningModule):
             val_dataset,
             classes,
             class_to_idx,
+            train_transform_gpu=None,
+            valid_transform_gpu=None,
             test_dataset=None,
             pretrained=False,
             input_channels=1
@@ -42,6 +44,9 @@ class LitEngineResNetSparse(pl.LightningModule):
         self.pin_memory = hparams["pin_memory"]
         self.epochs = hparams["epochs"]
         self.steps_per_epoch = hparams["steps_per_epoch"]
+        
+        self.train_transform_gpu = train_transform_gpu
+        self.valid_transform_gpu = valid_transform_gpu
 
         self.train_acc = torchmetrics.Accuracy(task="multiclass", num_classes=5)
         self.valid_acc = torchmetrics.Accuracy(task="multiclass", num_classes=5, average="none")
@@ -115,6 +120,9 @@ class LitEngineResNetSparse(pl.LightningModule):
 
     def training_step(self, train_batch, batch_idx):
         coords, feats, labels = train_batch  # data batch, labels
+        if self.train_transform_gpu is not None:
+            coords, feats = self.train_transform_gpu((coords, feats))
+            
         stensor = ME.SparseTensor(coordinates=coords, features=feats.unsqueeze(dim=-1).float())
         z = self.model(stensor)
         loss = self.calc_loss(z.F, labels.long())
@@ -144,6 +152,9 @@ class LitEngineResNetSparse(pl.LightningModule):
 
     def validation_step(self, val_batch, batch_idx):
         coords, feats, labels = val_batch
+        if self.valid_transform_gpu is not None:
+            coords, feats = self.valid_transform_gpu((coords,feat))
+            
         stensor = ME.SparseTensor(coordinates=coords, features=feats.unsqueeze(dim=-1).float())
         z = self.model(stensor)
         loss = self.calc_loss(z.F, labels.long())

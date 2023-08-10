@@ -48,18 +48,27 @@ if __name__ == '__main__':
                             config["clip_max"])
     AddNoise = AddNoise()
 
-    train_transform = transforms.Compose([PreProcess, AddNoise
+    train_transform_cpu = transforms.Compose([PreProcess, AddNoise
     ])
-    valid_transform = transforms.Compose([PreProcess
+    valid_transform_cpu = transforms.Compose([PreProcess
     ])
+    train_transform_gpu = transforms.Compose([
+                                                  ])
+    valid_transform_gpu = transforms.Compose([
+                                                  ])
     #dataset = lartpcDatasetSparse(root=config["train_datapath"], transform=data_transform, device=DEVICE)
-    train_dataset = lartpcDatasetSparse(root=config["train_datapath"], transform=train_transform, device=DEVICE)
-    valid_dataset = lartpcDatasetSparse(root=config["valid_datapath"], transform=valid_transform, device=DEVICE)
+    train_dataset = lartpcDatasetSparse(root=config["train_datapath"], transform=train_transform_cpu, device=DEVICE)
+    valid_dataset = lartpcDatasetSparse(root=config["valid_datapath"], transform=valid_transform_cpu, device=DEVICE)
 
     assert(train_dataset.class_to_idx == valid_dataset.class_to_idx) #make sure same labels
 
-    model = LitEngineResNetSparse(hparams=config, train_dataset=train_dataset, val_dataset=valid_dataset,
-                                  classes=train_dataset.classes, class_to_idx=train_dataset.class_to_idx)
+    model = LitEngineResNetSparse(hparams=config,
+                                  train_dataset=train_dataset,
+                                  val_dataset=valid_dataset,
+                                  classes=train_dataset.classes,
+                                  class_to_idx=train_dataset.class_to_idx,
+                                  train_transform_gpu=train_transform_gpu,
+                                  valid_transform_gpu=valid_transform_gpu)
 
     model.print_model()
 
