@@ -11,7 +11,7 @@ import models.resnet as resnet
 import MinkowskiEngine as ME
 import wandb
 from dataset.data_utils import PreProcess, AddNoise
-from dataset.lartpcdataset import HDF5Loader
+from dataset.lartpcdataset import HDF5Sampler
 import numpy as np
 import matplotlib.pyplot as plt
 from collections import Counter
@@ -90,22 +90,34 @@ class LitEngineResNetSparse(pl.LightningModule):
         return [optimizer], [scheduler]
 
     def train_dataloader(self):
-        return HDF5Loader(
+        sampler = HDF5Sampler(self.train_dataset, batch_size=self.batch_size, shuffle=self.shuffle_mode)
+        loader = torch.utils.data.DataLoader(
             dataset=self.train_dataset,
-            batch_size=self.batch_size,
-            shuffle=self.shuffle_mode)
+            batch_sampler=sampler,
+            collate_fn=ME.utils.batch_sparse_collate,
+            num_workers=1,
+            prefetch_factor=8)
+        return loader
 
     def val_dataloader(self):
-        return HDF5Loader(
+        sampler = HDF5Sampler(self.val_dataset, batch_size=self.batch_size, shuffle=self.shuffle_mode)
+        loader = torch.utils.data.DataLoader(
             dataset=self.val_dataset,
-            batch_size=self.batch_size,
-            shuffle="seq")
+            batch_sampler=sampler,
+            collate_fn=ME.utils.batch_sparse_collate,
+            num_workers=1,
+            prefetch_factor=8)
+        return loader
 
     def test_dataloader(self):
-        return HDF5Loader(
+        sampler = HDF5Sampler(self.val_dataset, batch_size=self.batch_size, shuffle=self.shuffle_mode)
+        loader = torch.utils.data.DataLoader(
             dataset=self.val_dataset,
-            batch_size=self.batch_size,
-            shuffle="seq")
+            batch_sampler=sampler,
+            collate_fn=ME.utils.batch_sparse_collate,
+            num_workers=1,
+            prefetch_factor=8)
+        return loader
 
     def calc_loss(self, pred, labels):
         loss = self.loss_fn(pred, labels)
