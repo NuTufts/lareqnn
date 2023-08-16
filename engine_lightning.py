@@ -11,6 +11,7 @@ import models.resnet as resnet
 import MinkowskiEngine as ME
 import wandb
 from dataset.data_utils import PreProcess, AddNoise
+from dataset.lartpcdataset import HDF5Loader
 import numpy as np
 import matplotlib.pyplot as plt
 from collections import Counter
@@ -23,7 +24,7 @@ class LitEngineResNetSparse(pl.LightningModule):
             train_dataset,
             val_dataset,
             classes,
-            class_to_idx,
+            idx_to_class,
             train_transform_gpu=None,
             valid_transform_gpu=None,
             test_dataset=None,
@@ -37,13 +38,13 @@ class LitEngineResNetSparse(pl.LightningModule):
                 setattr(self, name, value)
 
 
-        self.idx_to_class = {v: k for k, v in class_to_idx.items()}
+        self.idx_to_class = idx_to_class
         self.lr = hparams["lr"]
         self.weight_decay = hparams["weight_decay"]
         self.batch_size = hparams["batch_size"]
-        self.pin_memory = hparams["pin_memory"]
         self.epochs = hparams["epochs"]
         self.steps_per_epoch = hparams["steps_per_epoch"]
+        self.shuffle_mode = hparams["shuffle_mode"]
         
         self.train_transform_gpu = train_transform_gpu
         self.valid_transform_gpu = valid_transform_gpu
@@ -68,7 +69,8 @@ class LitEngineResNetSparse(pl.LightningModule):
             raise Exception("A valid model was not chosen")
 
         # get counts of each parameter
-        self.counts = [value for key, value in dict(Counter(self.train_dataset.targets)).items()]
+        self.counts = [value for key, value in self.train_dataset.counts().items()]
+        print(self.counts)
         # normalize counts
         self.normalized_counts = torch.tensor([1 / (value / sum(self.counts)) for value in self.counts])
 
@@ -88,31 +90,22 @@ class LitEngineResNetSparse(pl.LightningModule):
         return [optimizer], [scheduler]
 
     def train_dataloader(self):
-        return torch.utils.data.DataLoader(
+        return HDF5Loader(
             dataset=self.train_dataset,
             batch_size=self.batch_size,
-            shuffle=True,
-            collate_fn=ME.utils.batch_sparse_collate,
-            num_workers=8,
-            pin_memory=self.pin_memory)
+            shuffle=self.shuffle_mode)
 
     def val_dataloader(self):
-        return torch.utils.data.DataLoader(
+        return HDF5Loader(
             dataset=self.val_dataset,
             batch_size=self.batch_size,
-            collate_fn=ME.utils.batch_sparse_collate,
-            shuffle=True,
-            num_workers=8,
-            pin_memory=self.pin_memory)
+            shuffle="seq")
 
     def test_dataloader(self):
-        return torch.utils.data.DataLoader(
+        return HDF5Loader(
             dataset=self.val_dataset,
             batch_size=self.batch_size,
-            collate_fn=ME.utils.batch_sparse_collate,
-            shuffle=True,
-            num_workers=8,
-            pin_memory=self.pin_memory)
+            shuffle="seq")
 
     def calc_loss(self, pred, labels):
         loss = self.loss_fn(pred, labels)
@@ -123,7 +116,7 @@ class LitEngineResNetSparse(pl.LightningModule):
         if self.train_transform_gpu is not None:
             coords, feats = self.train_transform_gpu((coords, feats))
             
-        stensor = ME.SparseTensor(coordinates=coords, features=feats.unsqueeze(dim=-1).float())
+        stensor = ME.SparseTensor(coordinates=coords, features=feats.float())
         z = self.model(stensor)
         loss = self.calc_loss(z.F, labels.long())
         self.log('train_loss', loss, on_step=False, on_epoch=True, batch_size=self.batch_size, sync_dist=True)
@@ -155,7 +148,7 @@ class LitEngineResNetSparse(pl.LightningModule):
         if self.valid_transform_gpu is not None:
             coords, feats = self.valid_transform_gpu((coords,feats))
             
-        stensor = ME.SparseTensor(coordinates=coords, features=feats.unsqueeze(dim=-1).float())
+        stensor = ME.SparseTensor(coordinates=coords, features=feats.float())
         z = self.model(stensor)
         loss = self.calc_loss(z.F, labels.long())
         self.log('val_loss', loss, on_step=False, on_epoch=True, batch_size=self.batch_size, sync_dist=True)

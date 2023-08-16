@@ -1,14 +1,14 @@
 # Training and Test File Locations
 
-test_datapath: /home/oalterkait/PilarData/Test
-train_datapath: /home/oalterkait/PilarData/Train
-valid_datapath: /home/oalterkait/PilarData/Valid
+test_datapath: /home/oalterkait/PilarData/PilarDataTest512.h5
+train_datapath: /home/oalterkait/PilarData/PilarDataTrain512.h5
+valid_datapath: /home/oalterkait/PilarData/PilarDataValid512.h5
 
 
 
 # Training Parameters
 
-pin_memory: true
+shuffle_mode: seq
 ## wandb file location
 project: lareqnn
 ## number of gpus to use (format each on new line: - 0, - 1, ...)

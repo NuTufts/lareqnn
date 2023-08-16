@@ -125,11 +125,11 @@ class AddNoise(object):
         if self.full:
             noise = torch.normal(self.noise_mean, self.noise_std, size=feat.shape)
             feat = feat + noise
-            
+
             return coords, feat
 
         else:
-            noise = torch.normal(self.noise_mean, self.noise_std, size=[feat.shape[0]]).to(feat.device)
+            noise = torch.normal(self.noise_mean, self.noise_std, size=feat.shape).to(feat.device)
             feat = feat + noise
 
             return coords, feat

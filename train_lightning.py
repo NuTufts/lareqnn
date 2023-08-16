@@ -11,7 +11,7 @@ import MinkowskiEngine as ME
 import wandb
 
 from engine_lightning import LitEngineResNetSparse
-from dataset.lartpcdataset import lartpcDatasetSparse
+from dataset.lartpcdataset import PilarDatasetHDF5
 
 from dataset.data_utils import SparseToFull, PreProcess, AddNoise
 
@@ -48,25 +48,28 @@ if __name__ == '__main__':
                             config["clip_max"])
     AddNoise = AddNoise()
 
-    train_transform_gpu = transforms.Compose([PreProcess, AddNoise
+    train_transform_cpu = transforms.Compose([PreProcess, AddNoise
     ])
-    valid_transform_gpu = transforms.Compose([PreProcess
+    valid_transform_cpu = transforms.Compose([PreProcess
     ])
-    train_transform_cpu = transforms.Compose([
+    train_transform_gpu = transforms.Compose([
                                                   ])
-    valid_transform_cpu = transforms.Compose([
+    valid_transform_gpu = transforms.Compose([
                                                   ])
-    #dataset = lartpcDatasetSparse(root=config["train_datapath"], transform=data_transform, device=DEVICE)
-    train_dataset = lartpcDatasetSparse(root=config["train_datapath"], transform=train_transform_cpu, device=DEVICE)
-    valid_dataset = lartpcDatasetSparse(root=config["valid_datapath"], transform=valid_transform_cpu, device=DEVICE)
 
-    assert(train_dataset.class_to_idx == valid_dataset.class_to_idx) #make sure same labels
+    train_dataset = PilarDatasetHDF5(inp_file=config["train_datapath"], transform=train_transform_cpu)
+    valid_dataset = PilarDatasetHDF5(inp_file=config["valid_datapath"], transform=valid_transform_cpu)
+
+    #dataset = lartpcDatasetSparse(root=config["train_datapath"], transform=data_transform, device=DEVICE)
+    #train_dataset = lartpcDatasetSparse(root=config["train_datapath"], transform=train_transform_cpu, device=DEVICE)
+    #valid_dataset = lartpcDatasetSparse(root=config["valid_datapath"], transform=valid_transform_cpu, device=DEVICE)
+
 
     model = LitEngineResNetSparse(hparams=config,
                                   train_dataset=train_dataset,
                                   val_dataset=valid_dataset,
                                   classes=train_dataset.classes,
-                                  class_to_idx=train_dataset.class_to_idx,
+                                  idx_to_class=train_dataset.idx_to_class,
                                   train_transform_gpu=train_transform_gpu,
                                   valid_transform_gpu=valid_transform_gpu)
 
