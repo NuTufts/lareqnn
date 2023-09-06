@@ -8,6 +8,7 @@ import MinkowskiEngine as ME
 import h5py
 from collections import Counter
 from torch.utils.data import Sampler
+from .data_utils import SparseToFull
 
 
 class lartpcDatasetSparse(torchvision.datasets.DatasetFolder):
@@ -50,15 +51,15 @@ class PilarDatasetHDF5(torch.utils.data.Dataset):
                  inp_file,
                  lazy=True,  # takes a LOT of space but increases speed 10x
                  transform=None,
-                 include_vertex=False,
+                 include_feats=False,
                  target_transform=None):
         super(PilarDatasetHDF5, self).__init__()
 
         self.file = h5py.File(inp_file, 'r')
         # self.datasets = ["coordinates", "labels", "energy_deposit", "energy_init", "pos", "mom", "start_indices", "end_indices", "charge"] # uncomment to get more information
         self.datasets = ["coordinates", "charge", "labels", "start_indices", "end_indices"]
-        if include_vertex:
-            self.datasets.append("pos")
+        if include_feats is not False:
+            self.datasets.extend(["mom", "energy_deposit", "energy_init"])
         if lazy:
             self.dset_references = {name: self.file[name] for name in self.datasets}
         else:
@@ -70,7 +71,7 @@ class PilarDatasetHDF5(torch.utils.data.Dataset):
         self.transform = transform
         self.target_transform = target_transform
         self.length = len(self.dset_references["labels"])
-        self.include_vertex = include_vertex
+        self.include_feats = include_feats
 
     def __getitem__(self, index):
         start, end = int(self.dset_references["start_indices"][index]), int(self.dset_references["end_indices"][index])
@@ -88,18 +89,14 @@ class PilarDatasetHDF5(torch.utils.data.Dataset):
         if self.target_transform is not None:
             label = self.target_transform(label)
 
-        if self.include_vertex:
-            pos = self.dset_references["pos"][index]
-            pos = torch.from_numpy(pos)
-            return coords, charge, label, pos
-
-        # energy_deposit = self.dset_references["energy_deposit"][index]
-        # energy_init = self.dset_references["energy_init"][index]
-        # pos = self.dset_references["pos"][index]
-        # mom = self.dset_references["mom"][index]
-
-        # pos = torch.from_numpy(pos)
-        # mom = torch.from_numpy(mom)
+        if self.include_feats is not False:
+            mom = self.dset_references["mom"][index]
+            mom = torch.from_numpy(mom)
+            energy_init = self.dset_references["energy_init"][index]
+            energy_init = torch.tensor([energy_init], dtype=torch.float32)
+            energy_deposit = self.dset_references["energy_deposit"][index]
+            energy_deposit = torch.tensor([energy_deposit], dtype=torch.float32)
+            return coords, charge, label, mom, energy_init, energy_deposit
 
         return coords, charge, label
 
@@ -151,6 +148,89 @@ class HDF5Sampler(Sampler):
             return self.length // self.batch_size
         else:
             return (self.length + self.batch_size - 1) // self.batch_size
+
+
+
+
+class PilarDatasetHDF5Dense(torch.utils.data.Dataset):
+    def __init__(self,
+                 inp_file,
+                 crop=True,
+                 lazy=True,  # takes a LOT of space but increases speed 10x
+                 transform=None,
+                 include_feats=False,
+                 image_size=(512,512,512),
+                 target_transform=None):
+        super(PilarDatasetHDF5Dense, self).__init__()
+
+        self.file = h5py.File(inp_file, 'r')
+        # self.datasets = ["coordinates", "labels", "energy_deposit", "energy_init", "pos", "mom", "start_indices", "end_indices", "charge"] # uncomment to get more information
+        self.datasets = ["coordinates", "charge", "labels", "start_indices", "end_indices"]
+        if include_feats is not False:
+            self.datasets.extend(["mom", "energy_deposit", "energy_init"])
+        if lazy:
+            self.dset_references = {name: self.file[name] for name in self.datasets}
+        else:
+            self.dset_references = {name: self.file[name][:] for name in self.datasets}
+
+        self.pdgtolabels = {11: 0, -11: 0, 13: 1, -13: 1, 22: 2, 211: 3, -211: 3, 2212: 4}
+        self.classes = ["electron", "muon", "gamma", "pion", "proton"]
+        self.idx_to_class = {i: self.classes[i] for i in range(len(self.classes))}
+        self.transform = transform
+        self.target_transform = target_transform
+        self.length = len(self.dset_references["labels"])
+        self.include_feats = include_feats
+        self.image_size = image_size
+        self.crop = crop
+        self.STF = SparseToFull(image_size)
+
+    def __getitem__(self, index):
+        start, end = int(self.dset_references["start_indices"][index]), int(self.dset_references["end_indices"][index])
+        coords = self.dset_references["coordinates"][start:end].astype('int32')
+        charge = self.dset_references["charge"][start:end].reshape(-1, 1).astype('float32')
+        pdg = self.dset_references["labels"][index]
+        label = self.pdgtolabels[int(pdg)]
+
+        if self.crop:
+            coords -= coords.min(axis=0)
+
+        coords = torch.from_numpy(coords)
+
+        
+        charge = torch.from_numpy(charge)
+        label = torch.tensor([label], dtype=torch.int32)
+
+        image = self.STF((coords, charge))
+
+        if self.transform is not None:
+            image = self.transform(image)
+        if self.target_transform is not None:
+            label = self.target_transform(label)
+
+        if self.include_feats is not False:
+            mom = self.dset_references["mom"][index]
+            mom = torch.from_numpy(mom)
+            energy_init = self.dset_references["energy_init"][index]
+            energy_init = torch.tensor([energy_init], dtype=torch.float32)
+            energy_deposit = self.dset_references["energy_deposit"][index]
+            energy_deposit = torch.tensor([energy_deposit], dtype=torch.float32)
+            return image, label, mom, energy_init, energy_deposit
+
+        return image, label
+
+    def __len__(self):
+        return self.length
+
+    def counts(self):
+        pdg_values = self.dset_references["labels"][:]
+
+        class_labels = [self.pdgtolabels[int(pdg)] for pdg in pdg_values]
+
+        label_counts = Counter(class_labels)
+
+        return label_counts
+
+
 
 
 if __name__ == "__main__":
