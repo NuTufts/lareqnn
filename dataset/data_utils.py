@@ -23,10 +23,11 @@ class SparseToFull(object):
         imagesize (L x W x H): Size of full image
     """
 
-    def __init__(self, imagesize=(512, 512, 512)):
+    def __init__(self, imagesize=[512, 512, 512]):
         super().__init__()
         assert isinstance(imagesize, tuple)
-        assert len(imagesize) == 3
+        if len(imagesize)!=3:
+            raise TypeError(f'only implemented for 3D images')
         self.imagesize = imagesize
 
     def __call__(self, tensor):
@@ -37,9 +38,8 @@ class SparseToFull(object):
         Returns:
             Tensor: full tensor
         """
-
-        indices = tensor[:, :-1].T
-        values = tensor[:, -1].T
+        indices = tensor[0].T
+        values = tensor[1].T.squeeze()
         tensor_input = torch.sparse_coo_tensor(indices, values, self.imagesize, dtype=torch.float32)
         tensor_dense = tensor_input.to_dense()
         dense_unsqueeze = torch.unsqueeze(tensor_dense, dim=0)

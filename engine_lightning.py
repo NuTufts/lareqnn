@@ -6,12 +6,11 @@ from torch.utils.data import DataLoader
 from torch.utils.data import random_split
 import torchmetrics
 import lightning.pytorch as pl
-import models.resnet as resnet
-# import models.instance_resnet as instance_resnet
-import MinkowskiEngine as ME
+import models.resnet_torchsparse as resnet
+from torchsparse import SparseTensor
 import wandb
 from dataset.data_utils import PreProcess, AddNoise
-from dataset.lartpcdataset import HDF5Sampler
+from dataset.lartpcdataset import HDF5Sampler, sparse_collate_fn_custom
 import numpy as np
 import matplotlib.pyplot as plt
 from collections import Counter
@@ -44,6 +43,7 @@ class LitEngineResNetSparse(pl.LightningModule):
         self.batch_size = hparams["batch_size"]
         self.epochs = hparams["epochs"]
         self.steps_per_epoch = hparams["steps_per_epoch"]
+        self.prefetch_factor = hparams["prefetch_factor"]
         self.shuffle_mode = hparams["shuffle_mode"]
         
         self.train_transform_gpu = train_transform_gpu
@@ -55,16 +55,14 @@ class LitEngineResNetSparse(pl.LightningModule):
         self.valid_conf = torchmetrics.ConfusionMatrix(task="multiclass", num_classes=5)
 
 
-        if hparams["model"] == "ResNet14":
-            self.model = resnet.ResNet14(in_channels=1, out_channels=5, D=3)
-        elif hparams["model"] == "ResNet18":
-            self.model = resnet.ResNet18(in_channels=1, out_channels=5, D=3)
-        elif hparams["model"] == "ResNet34":
-            self.model = resnet.ResNet34(in_channels=1, out_channels=5, D=3)
-        elif hparams["model"] == "ResNet50":
-            self.model = resnet.ResNet50(in_channels=1, out_channels=5, D=3)
-        elif hparams["model"] == "ResNet101":
-            self.model = resnet.ResNet101(in_channels=1, out_channels=5, D=3)
+        if hparams["model"] == "SparseResNet14":
+            self.model = resnet.SparseResNet14(in_channels=1, out_classes=5)
+        elif hparams["model"] == "SparseResNet18":
+            self.model = resnet.SparseResNet18(in_channels=1, out_classes=5)
+        elif hparams["model"] == "SparseResNet34":
+            self.model = resnet.SparseResNet34(in_channels=1, out_classes=5)
+        elif hparams["model"] == "SparseResNet50":
+            self.model = resnet.SparseResNet50(in_channels=1, out_classes=5)
         else:
             raise Exception("A valid model was not chosen")
 
@@ -91,32 +89,29 @@ class LitEngineResNetSparse(pl.LightningModule):
 
     def train_dataloader(self):
         sampler = HDF5Sampler(self.train_dataset, batch_size=self.batch_size, shuffle=self.shuffle_mode)
-        loader = torch.utils.data.DataLoader(
-            dataset=self.train_dataset,
-            batch_sampler=sampler,
-            collate_fn=ME.utils.batch_sparse_collate,
-            num_workers=1,
-            prefetch_factor=8)
+        loader = torch.utils.data.DataLoader(dataset=self.train_dataset,
+                                             batch_sampler=sampler,
+                                             collate_fn=sparse_collate_fn_custom,
+                                             num_workers=1,
+                                             prefetch_factor=self.prefetch_factor)
         return loader
 
     def val_dataloader(self):
         sampler = HDF5Sampler(self.val_dataset, batch_size=self.batch_size, shuffle=self.shuffle_mode)
-        loader = torch.utils.data.DataLoader(
-            dataset=self.val_dataset,
-            batch_sampler=sampler,
-            collate_fn=ME.utils.batch_sparse_collate,
-            num_workers=1,
-            prefetch_factor=8)
+        loader = torch.utils.data.DataLoader(dataset=self.val_dataset,
+                                             batch_sampler=sampler,
+                                             collate_fn=sparse_collate_fn_custom,
+                                             num_workers=1,
+                                             prefetch_factor=self.prefetch_factor)
         return loader
 
     def test_dataloader(self):
         sampler = HDF5Sampler(self.val_dataset, batch_size=self.batch_size, shuffle=self.shuffle_mode)
-        loader = torch.utils.data.DataLoader(
-            dataset=self.val_dataset,
-            batch_sampler=sampler,
-            collate_fn=ME.utils.batch_sparse_collate,
-            num_workers=1,
-            prefetch_factor=8)
+        loader = torch.utils.data.DataLoader(dataset=self.val_dataset,
+                                             batch_sampler=sampler,
+                                             collate_fn=sparse_collate_fn_custom,
+                                             num_workers=1,
+                                             prefetch_factor=self.prefetch_factor)
         return loader
 
     def calc_loss(self, pred, labels):
@@ -124,17 +119,20 @@ class LitEngineResNetSparse(pl.LightningModule):
         return loss
 
     def training_step(self, train_batch, batch_idx):
-        coords, feats, labels = train_batch  # data batch, labels
+        input = train_batch[0]
+        labels = train_batch[1].reshape(-1)
+        
+        # TODO: fix this so it has correct format for torchsparse
         if self.train_transform_gpu is not None:
-            coords, feats = self.train_transform_gpu((coords, feats))
-            
-        stensor = ME.SparseTensor(coordinates=coords, features=feats.float())
-        z = self.model(stensor)
-        loss = self.calc_loss(z.F, labels.long())
+            raise NotImplementedError
+            coords, feats = self.train_transform_gpu(input)
+
+        z = self.model(input)
+        loss = self.calc_loss(z, labels.long())
         self.log('train_loss', loss, on_step=False, on_epoch=True, batch_size=self.batch_size, sync_dist=True)
 
-        self.train_acc.update(z.F, labels.long())
-        self.train_conf.update(z.F, labels.long())
+        self.train_acc.update(z, labels.long())
+        self.train_conf.update(z, labels.long())
 
         self.log(f"train_acc", self.train_acc, on_step=False, on_epoch=True, sync_dist=True)
 
@@ -156,17 +154,20 @@ class LitEngineResNetSparse(pl.LightningModule):
         self.train_acc.reset()
 
     def validation_step(self, val_batch, batch_idx):
-        coords, feats, labels = val_batch
+        input = val_batch[0]
+        labels = val_batch[1].reshape(-1)
+
+        # TODO: fix this so it has correct format for torchsparse
         if self.valid_transform_gpu is not None:
-            coords, feats = self.valid_transform_gpu((coords,feats))
-            
-        stensor = ME.SparseTensor(coordinates=coords, features=feats.float())
-        z = self.model(stensor)
-        loss = self.calc_loss(z.F, labels.long())
+            raise NotImplementedError
+            coords, feats = self.valid_transform_gpu(input)
+
+        z = self.model(input)
+        loss = self.calc_loss(z, labels.long())
         self.log('val_loss', loss, on_step=False, on_epoch=True, batch_size=self.batch_size, sync_dist=True)
 
-        self.valid_acc.update(z.F, labels.long())
-        self.valid_conf.update(z.F, labels.long())
+        self.valid_acc.update(z, labels.long())
+        self.valid_conf.update(z, labels.long())
 
         return loss
 

@@ -1,6 +1,6 @@
 import numpy as np
 import torch
-from MinkowskiEngine import SparseTensor
+from torchsparse import SparseTensor
 
 from e3nn import o3
 from e3nn.math import soft_one_hot_linspace
@@ -33,9 +33,11 @@ def rotate_sparse_tensor(x, irreps, abc, device):
 
     # rotate the features (according to `irreps`)
     features = x.F.to(device)
+    print(f"{features.shape=}")
+    print(f"{irreps.D_from_angles(*abc).shape=}")
     features = torch.einsum("ij,bj->bi", irreps.D_from_angles(*abc).to(device), features)
 
-    return SparseTensor(coordinates=coordinates, features=features, coordinate_manager=x.coordinate_manager)
+    return SparseTensor(coords=coordinates, feats=features)
 
 
 def test_equivariance(input_tensor, model, rotations_list, irreps_in, irreps_out, mode="mean", device=torch.device("cpu")):
@@ -94,9 +96,9 @@ def get_equiv_error(input_tensor, model, rotation, irreps_in, irreps_out, mode="
     output_model = model(input_tensor)
     output_rotated = rotate_sparse_tensor(output_model, irreps_out, rotation_tensor, device)
     # temporary fix
-    rotated_output_model = SparseTensor(coordinates=rotated_output_model.C, features=rotated_output_model.F,
+    rotated_output_model = SparseTensor(coords=rotated_output_model.C, feats=rotated_output_model.F,
                                         coordinate_manager=input_tensor.coordinate_manager)
-    output_rotated = SparseTensor(coordinates=output_rotated.C, features=output_rotated.F,
+    output_rotated = SparseTensor(coords=output_rotated.C, feats=output_rotated.F,
                                   coordinate_manager=input_tensor.coordinate_manager)
 
     diff = (rotated_output_model - output_rotated).F.abs()
@@ -116,7 +118,7 @@ def get_equiv_error(input_tensor, model, rotation, irreps_in, irreps_out, mode="
 
 def get_batch_jumps(sparse_tensor):
     """Get the indices where the batch index changes"""
-    c_jumps = sparse_tensor.coordinates.T[0]
+    c_jumps = sparse_tensor.C.T[0]
     jumps = torch.where(c_jumps[:-1] != c_jumps[1:])[0] + 1
     end_value = torch.tensor([len(c_jumps)])
     z = torch.tensor([0])

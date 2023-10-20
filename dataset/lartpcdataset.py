@@ -4,11 +4,16 @@ import torch
 import torchvision.datasets
 import torchvision.transforms as transforms
 from typing import Any, Callable, cast, Dict, List, Optional, Tuple
-import MinkowskiEngine as ME
+from torchsparse.utils.collate import sparse_collate_fn, sparse_collate
+from torchsparse import SparseTensor
 import h5py
 from collections import Counter
 from torch.utils.data import Sampler
-from .data_utils import SparseToFull
+
+if __package__:
+    from .data_utils import SparseToFull
+else:
+    from data_utils import SparseToFull
 
 
 class lartpcDatasetSparse(torchvision.datasets.DatasetFolder):
@@ -52,14 +57,17 @@ class PilarDatasetHDF5(torch.utils.data.Dataset):
                  lazy=True,  # takes a LOT of space but increases speed 10x
                  transform=None,
                  include_feats=False,
+                 segment=False,
                  target_transform=None):
         super(PilarDatasetHDF5, self).__init__()
 
         self.file = h5py.File(inp_file, 'r')
         # self.datasets = ["coordinates", "labels", "energy_deposit", "energy_init", "pos", "mom", "start_indices", "end_indices", "charge"] # uncomment to get more information
         self.datasets = ["coordinates", "charge", "labels", "start_indices", "end_indices"]
+        self.output_datasets = ["SparseImage", "labels"]
         if include_feats is not False:
             self.datasets.extend(["mom", "energy_deposit", "energy_init"])
+            self.output_datasets.extend(["mom", "energy_deposit", "energy_init"])
         if lazy:
             self.dset_references = {name: self.file[name] for name in self.datasets}
         else:
@@ -72,6 +80,7 @@ class PilarDatasetHDF5(torch.utils.data.Dataset):
         self.target_transform = target_transform
         self.length = len(self.dset_references["labels"])
         self.include_feats = include_feats
+        self.segment = segment
 
     def __getitem__(self, index):
         start, end = int(self.dset_references["start_indices"][index]), int(self.dset_references["end_indices"][index])
@@ -89,6 +98,12 @@ class PilarDatasetHDF5(torch.utils.data.Dataset):
         if self.target_transform is not None:
             label = self.target_transform(label)
 
+        input = SparseTensor(coords=coords, feats=charge)
+
+        if self.segment:
+            label = label.repeat(coords.shape[0], 1)
+            label = SparseTensor(coords=coords, feats=label)
+
         if self.include_feats is not False:
             mom = self.dset_references["mom"][index]
             mom = torch.from_numpy(mom)
@@ -96,9 +111,9 @@ class PilarDatasetHDF5(torch.utils.data.Dataset):
             energy_init = torch.tensor([energy_init], dtype=torch.float32)
             energy_deposit = self.dset_references["energy_deposit"][index]
             energy_deposit = torch.tensor([energy_deposit], dtype=torch.float32)
-            return coords, charge, label, mom, energy_init, energy_deposit
+            return (input, label, mom, energy_init, energy_deposit)
 
-        return coords, charge, label
+        return (input, label)
 
     def __len__(self):
         return self.length
@@ -159,6 +174,7 @@ class PilarDatasetHDF5Dense(torch.utils.data.Dataset):
                  lazy=True,  # takes a LOT of space but increases speed 10x
                  transform=None,
                  include_feats=False,
+                 segment=False,
                  image_size=(512,512,512),
                  target_transform=None):
         super(PilarDatasetHDF5Dense, self).__init__()
@@ -195,17 +211,19 @@ class PilarDatasetHDF5Dense(torch.utils.data.Dataset):
             coords -= coords.min(axis=0)
 
         coords = torch.from_numpy(coords)
-
         
         charge = torch.from_numpy(charge)
         label = torch.tensor([label], dtype=torch.int32)
 
         image = self.STF((coords, charge))
 
+
         if self.transform is not None:
             image = self.transform(image)
         if self.target_transform is not None:
             label = self.target_transform(label)
+
+        # TODO: add segment option
 
         if self.include_feats is not False:
             mom = self.dset_references["mom"][index]
@@ -231,6 +249,28 @@ class PilarDatasetHDF5Dense(torch.utils.data.Dataset):
         return label_counts
 
 
+def sparse_collate_fn_custom(inputs: List[Tuple[Any, ...]]) -> Tuple[Any, ...]:
+    # Check if the first item in the list is a tuple
+    if isinstance(inputs[0], tuple):
+        output = []
+
+        # Loop through each tuple item by index
+        for idx in range(len(inputs[0])):
+            item_type = type(inputs[0][idx])
+
+            # Check the type of the item at the given index
+            if item_type == np.ndarray:
+                output.append(torch.stack([torch.tensor(input[idx]) for input in inputs], dim=0))
+            elif item_type == torch.Tensor:
+                output.append(torch.stack([input[idx] for input in inputs], dim=0))
+            elif item_type == SparseTensor:
+                output.append(sparse_collate([input[idx] for input in inputs]))
+            else:
+                output.append(torch.cat([torch.tensor(input[idx]) for input in inputs], dim=0))
+
+        return tuple(output)
+    else:
+        return inputs
 
 
 if __name__ == "__main__":
@@ -238,25 +278,109 @@ if __name__ == "__main__":
     a quick test program
     """
     # Remove . from .data_utils to run this test
+    dataset_location = "/home/oalterkait/PilarData/PilarDataTrain.h5"
     sparse = True
-    if sparse:
-        device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-        data = lartpcDatasetSparse(root="../../PilarDataTrain", device=device)
-        #                          ,transform=transforms.Compose([
-        #     ]))
-        test_loader = torch.utils.data.DataLoader(
-            dataset=data,
-            batch_size=4,
-            collate_fn=ME.utils.batch_sparse_collate,
-            shuffle=True)
+    include_feats = True
+    segment = False
 
-        it = iter(test_loader)
+    if sparse:
+        train_dataset = PilarDatasetHDF5(dataset_location, include_feats=include_feats, segment=segment)
+        batch_size = 8
+        sampler = HDF5Sampler(dataset_location, batch_size=batch_size, shuffle="random")
+        loader = torch.utils.data.DataLoader(dataset=train_dataset,
+                                             batch_sampler=sampler,
+                                             collate_fn=sparse_collate_fn_custom,
+                                             num_workers=1,
+                                             prefetch_factor=2)
+
+
+        it = iter(loader)
         batch = next(it)
         #     print(batch[0].sum())
         #     print(batch[1])
         x = batch
-        print(x)
-        classnames = data.class_to_idx
-        idx_to_class = {v:k for k,v in classnames.items()}
-        print([idx_to_class[int(i)] for i in x[2]])
-        print(x[0].shape)
+
+
+        classnames = train_dataset.classes
+        idx_to_class = train_dataset.idx_to_class
+        output_datasets = train_dataset.output_datasets
+
+        for i, key in enumerate(output_datasets):
+            print(key)
+
+            if i==0:
+                print("coords_shape = ", x[i].coords.shape)
+                print(x[i].coords)
+                print("feats_shape = ", x[i].feats.shape)
+                print(x[i].feats)
+                continue
+
+            if key == "labels":
+                if segment:
+                    labels = x[i].F
+                    print("labels_shape = ", labels.shape)
+                else:
+                    labels = x[i]
+                    print([idx_to_class[int(i)] for i in labels])
+                continue
+
+            if isinstance(x[i], SparseTensor):
+                print("shape = ", x[i].F.shape)
+                print(x[i].F)
+            else:
+                print(x[i].shape)
+                print(x[i])
+            
+
+        # for key, values in x.items():
+        #     if key == "input": print("charge")
+        #     else: print(key)
+        #
+        #     if key == "label":
+        #         if segment:
+        #             labels = x["label"].F
+        #             print(labels.shape)
+        #         else:
+        #             labels = x["label"]
+        #             print([idx_to_class[int(i)] for i in labels])
+        #         continue
+        #
+        #     if isinstance(values, SparseTensor):
+        #         print("shape = ", values.F.shape)
+        #         print(values.F)
+        #     else:
+        #         print(values.shape)
+        #         print(values)
+
+    else:
+        train_dataset = PilarDatasetHDF5Dense(dataset_location, include_feats=include_feats)
+        batch_size = 8
+        sampler = HDF5Sampler(dataset_location, batch_size=batch_size, shuffle="random")
+        loader = torch.utils.data.DataLoader(dataset=train_dataset,
+                                             batch_sampler=sampler,
+                                             num_workers=1,
+                                             prefetch_factor=2)
+
+        classnames = train_dataset.classes
+        idx_to_class = train_dataset.idx_to_class
+
+        it = iter(loader)
+        batch = next(it)
+
+
+        if include_feats:
+            dict_labels = ["image", "label", "mom", "energy_init", "energy_deposit"]
+        else:
+            dict_labels = ["image", "label"]
+
+        for i, key in enumerate(dict_labels):
+            print(key)
+
+            if key == "label":
+                labels = batch[i]
+                print("shape = ",labels.shape)
+                print([idx_to_class[int(i)] for i in labels])
+                continue
+
+            print("shape = ",batch[i].shape)
+            print(batch[i])

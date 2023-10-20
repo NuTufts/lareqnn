@@ -2,6 +2,7 @@
 # Taken from https://github.com/e3nn/e3nn/blob/main/e3nn/nn/models/v2203/sparse_voxel_convolution.py
 
 import math
+from typing import Tuple, Optional
 
 import torch
 from e3nn import o3
@@ -9,13 +10,8 @@ from e3nn.math import soft_one_hot_linspace
 from e3nn.o3 import FullyConnectedTensorProduct, Linear, Irreps
 from e3nn.nn import BatchNorm, Activation, Gate
 
-try:
-    from MinkowskiEngine import KernelGenerator, MinkowskiConvolutionFunction, SparseTensor, MinkowskiInterpolation, \
-        MinkowskiMaxPooling, MinkowskiAvgPooling
-    from MinkowskiEngineBackend._C import ConvolutionMode
-except ImportError:
-    pass
-
+from torchsparse import SparseTensor
+from torchsparse.nn.functional import conv3d
 
 class Convolution(torch.nn.Module):
     """convolution on voxels.
@@ -26,7 +22,7 @@ class Convolution(torch.nn.Module):
         irreps_sh (e3nn.o3.Irreps): The irreps set, typically set to ``o3.Irreps.spherical_harmonics(lmax)``.
         diameter (float): Diameter of the filter in physical units.
         num_radial_basis (int): Number of radial basis functions.
-        steps (tuple of float): Size of the pixel in physical units.
+        steps (tuple of float): Size of the pixel in physical units (same as dilation).
         no_linear (bool): If True, the Linear layer is skipped and only a residual connection is used.
           (use only when irreps_in and irreps_out are the same)
 
@@ -36,9 +32,14 @@ class Convolution(torch.nn.Module):
     Raises:
         ValueError: If the provided input parameters are incorrect.
     """
-
-    def __init__(self, irreps_in, irreps_out, irreps_sh, diameter, num_radial_basis, steps=(1.0, 1.0, 1.0),
-                 no_linear=False):
+    def __init__(self,
+             irreps_in: Irreps,
+             irreps_out: Irreps,
+             irreps_sh: Irreps,
+             diameter: float,
+             num_radial_basis: int,
+             steps: Tuple[float, float, float] = (1.0, 1.0, 1.0),
+             no_linear: Optional[bool] = False) -> None:
         super().__init__()
 
         self.irreps_in = o3.Irreps(irreps_in)
@@ -79,7 +80,10 @@ class Convolution(torch.nn.Module):
         self.register_buffer("emb", emb)
 
         sh = o3.spherical_harmonics(
-            l=self.irreps_sh, x=lattice, normalize=True, normalization="component"
+            l=self.irreps_sh,
+            x=lattice,
+            normalize=True,
+            normalization="component"
         )  # [x, y, z, irreps_sh.dim]
         self.register_buffer("sh", sh)
 
@@ -94,19 +98,16 @@ class Convolution(torch.nn.Module):
 
         self.weight = torch.nn.Parameter(torch.randn(self.num_radial_basis, self.tp.weight_numel))
 
-        self.kernel_generator = KernelGenerator(lattice.shape[:3], dimension=3)
+        self.kernel_shape = lattice.shape[:3]
 
-        self.conv_fn = MinkowskiConvolutionFunction()
 
     def kernel(self):
         weight = self.emb @ self.weight
         weight = weight / (self.sh.shape[0] * self.sh.shape[1] * self.sh.shape[2])
         kernel = self.tp.right(self.sh, weight)  # [x, y, z, irreps_in.dim, irreps_out.dim]
 
-        # TODO: understand why this is necessary
-        kernel = torch.einsum("xyzij->zyxij", kernel)  # [z, y, x, irreps_in.dim, irreps_out.dim]
-
-        kernel = kernel.reshape(-1, *kernel.shape[-2:])  # [z * y * x, irreps_in.dim, irreps_out.dim]
+        print(kernel.permute(3, 4, 0, 1, 2))
+        
         return kernel
 
     def forward(self, x):
@@ -117,26 +118,14 @@ class Convolution(torch.nn.Module):
         Returns:
             SparseTensor
         """
+
+        out = conv3d(x, self.kernel(), self.kernel_shape)
+
         if self.no_linear:
-            sc = x.F
+            return out
         else:
             sc = self.sc(x.F)
-
-        out = self.conv_fn.apply(
-            x.F,
-            self.kernel(),
-            self.kernel_generator,
-            ConvolutionMode.DEFAULT,
-            x.coordinate_map_key,
-            x.coordinate_map_key,
-            x._manager,
-        )
-
-        return SparseTensor(
-            sc + out,
-            coordinate_map_key=x.coordinate_map_key,
-            coordinate_manager=x._manager,
-        )
+            return SparseTensor(coords=out.C, feats=sc + out.F)
 
 
 def get_batch_jumps(sparse_tensor):
@@ -176,9 +165,8 @@ class EquivariantBatchNorm(torch.nn.Module):
         output = self.bn(input.F)
 
         return SparseTensor(
-            output,
-            coordinate_map_key=input.coordinate_map_key,
-            coordinate_manager=input.coordinate_manager,
+            coords=input.C,
+            feats=output,
         )
 
     def __repr__(self):
@@ -233,9 +221,8 @@ class EquivariantActivation(torch.nn.Module):
         output = self.gate(input.F)
 
         return SparseTensor(
-            output,
-            coordinate_map_key=input.coordinate_map_key,
-            coordinate_manager=input.coordinate_manager,
+            coords=input.C,
+            feats=output
         )
 
     def __repr__(self):
@@ -291,7 +278,7 @@ class EquivariantDownSample(torch.nn.Module):
         stacked_features = torch.cat(cat_list, dim=1)
 
         # create a sparse tensor from the stacked features
-        stacked_tensors = SparseTensor(coordinates=input.C, features=stacked_features)
+        stacked_tensors = SparseTensor(coords=input.C, feats=stacked_features)
 
         # perform pooling on the stacked tensor
         if self.pooling_mode == "max":
@@ -366,9 +353,8 @@ class EquivariantSoftMax(torch.nn.Module):
         output = self.softmax(input.F)
 
         return SparseTensor(
-            output,
-            coordinate_map_key=input.coordinate_map_key,
-            coordinate_manager=input.coordinate_manager,
+            coords=input.C,
+            feats=output,
         )
 
     def __repr__(self):

@@ -1,30 +1,30 @@
 # Training and Test File Locations
 
-test_datapath: /home/oalterkait/PilarData/PilarDataTest512.h5
-train_datapath: /home/oalterkait/PilarData/PilarDataTrain512.h5
-valid_datapath: /home/oalterkait/PilarData/PilarDataValid512.h5
+test_datapath: /home/oalterkait/PilarData/PilarDataTest.h5
+train_datapath: /home/oalterkait/PilarData/PilarDataTrain.h5
+valid_datapath: /home/oalterkait/PilarData/PilarDataValid.h5
 
 
 
 # Training Parameters
 
 shuffle_mode: seq
+prefetch_factor: 8
 ## wandb file location
 project: lareqnn
 ## number of gpus to use (format each on new line: - 0, - 1, ...)
 gpus:
 - 0
-- 1
 
 
 
 # Hyperparameters
 
-model: ResNet50
+model: SparseResNet18
 lr: 0.00005
 epochs: 1024
-steps_per_epoch: 256
-batch_size: 512
+steps_per_epoch: 128
+batch_size: 256
 grad_batches: 1
 grad_clip: 1
 weight_decay: 0.01

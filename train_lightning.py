@@ -7,7 +7,6 @@ from argparse import ArgumentParser
 from lightning.pytorch.loggers import WandbLogger
 # from pl_bolts.callbacks import ModuleDataMonitor
 import gc
-import MinkowskiEngine as ME
 import wandb
 
 from engine_lightning import LitEngineResNetSparse
@@ -52,10 +51,11 @@ if __name__ == '__main__':
     ])
     valid_transform_cpu = transforms.Compose([PreProcess
     ])
-    train_transform_gpu = transforms.Compose([
-                                                  ])
-    valid_transform_gpu = transforms.Compose([
-                                                  ])
+    # not implemented for torchsparse
+    train_transform_gpu = None #transforms.Compose([
+                               #                   ])
+    valid_transform_gpu = None #transforms.Compose([
+                               #                   ])
 
     train_dataset = PilarDatasetHDF5(inp_file=config["train_datapath"], transform=train_transform_cpu)
     valid_dataset = PilarDatasetHDF5(inp_file=config["valid_datapath"], transform=valid_transform_cpu)
@@ -101,21 +101,20 @@ if __name__ == '__main__':
     trainer = pl.Trainer(accelerator='gpu',
                          devices=config["gpus"],
                          strategy='auto',
-                         precision=32,
+                         #precision=32,
                          accumulate_grad_batches=config["grad_batches"],
                          # deterministic=True,
                          logger=wandb_logger,
                          min_epochs=1,
                          max_epochs=config["epochs"],
                          log_every_n_steps=10,
-                         # overfit_batches=4,
+                         #overfit_batches=1,
+                         #profiler="simple",
                          gradient_clip_val=config["grad_clip"],
                          limit_train_batches=config["steps_per_epoch"],
                          limit_val_batches=100,
                          callbacks=[lr_monitor, checkpoint_callback, early_stopping])
     #                    callbacks=[lr_monitor, early_stopping])
     # callbacks=[monitor])
-
-    ME.MinkowskiSyncBatchNorm.convert_sync_batchnorm(model)
 
     trainer.fit(model)

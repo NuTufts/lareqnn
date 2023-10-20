@@ -4,9 +4,11 @@ from e3nn.o3 import Irreps
 from e3nn import o3
 from e3nn.nn import BatchNorm
 import math
-from sparse_voxel_convolution import Convolution, EquivariantConvolutionBlock, \
+from .sparse_voxel_convolution import Convolution, EquivariantConvolutionBlock, \
     EquivariantDownSample
 from utils import rotate_sparse_tensor
+from torchsparse import SparseTensor
+from torchsparse.nn.functional import global_max_pool
 import MinkowskiEngine as ME
 import torch.nn as nn
 import numpy as np
