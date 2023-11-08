@@ -20,14 +20,19 @@ def np_loader(inp):
 class SparseToFull(object):
     """Change from sparse data format to a full 3D image.
     Args:
-        imagesize (L x W x H): Size of full image
+        project (bool): project the data to a 2D image by removing the z axis
+        imagesize (L x W x H): size of the image if project is true, else (L x W)
     """
 
-    def __init__(self, imagesize=[512, 512, 512]):
+    def __init__(self, project=False, imagesize=[512, 512, 512]):
         super().__init__()
         assert isinstance(imagesize, tuple)
-        if len(imagesize)!=3:
-            raise TypeError(f'only implemented for 3D images')
+        assert isinstance(project, bool)
+        if not project and len(imagesize) != 3:
+            raise TypeError(f'only implemented for 3D images if project is False')
+        if project and len(imagesize) != 2:
+            raise TypeError(f'only implemented for 2D images if project is True')
+        self.project = project
         self.imagesize = imagesize
 
     def __call__(self, tensor):
@@ -39,6 +44,8 @@ class SparseToFull(object):
             Tensor: full tensor
         """
         indices = tensor[0].T
+        if self.project:
+            indices = indices[:2, :]
         values = tensor[1].T.squeeze()
         tensor_input = torch.sparse_coo_tensor(indices, values, self.imagesize, dtype=torch.float32)
         tensor_dense = tensor_input.to_dense()

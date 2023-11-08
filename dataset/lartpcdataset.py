@@ -127,42 +127,68 @@ class PilarDatasetHDF5(torch.utils.data.Dataset):
 
         return label_counts
 
-
 class HDF5Sampler(Sampler):
-    def __init__(self, data_source, batch_size=8, shuffle="seq", drop_last=False):
+    def __init__(self, data_source, batch_size=8, shuffle_mode="seq", drop_last=False, target_label=None):
         self.data_source = data_source
         self.batch_size = batch_size
         self.drop_last = drop_last
-        self.shuffle = shuffle
+        self.shuffle_mode = shuffle_mode
+        self.target_label = target_label
         self.length = len(data_source)
 
-        if shuffle not in ("random", "seq", "none"):
-            raise TypeError('shuffle mode has to be either ("random", "seq", "none")')
+        if shuffle_mode not in ("random", "seq", None):
+            raise TypeError('shuffle mode has to be either ("random", "seq", None)')
+
+        # Filter indices by label if label is not None
+        if target_label is not None:
+            labels_tensor = torch.tensor(self.data_source.dset_references["labels"])
+            self.indices = torch.nonzero(labels_tensor == self.target_label, as_tuple=True)[0]
+            self.length = len(self.indices)
+        else:
+            self.indices = torch.arange(self.length)
 
     def __iter__(self):
-        if self.shuffle == "random":
-            indices = torch.randint(0, self.length - 1, (len(self), self.batch_size,))
-        elif self.shuffle == "seq":
-            random_starts = torch.randint(0, self.length - 1 - self.batch_size, (len(self), 1))
-            indices = random_starts + torch.arange(0, self.batch_size)
-        elif self.shuffle == "none":
-            starts = torch.arange(0, self.length - 1, self.batch_size)
-
-            # Check if the last batch exceeds the length of the dataset
-            if starts[-1] + self.batch_size >= self.length:
-                # Revert to the same behavior as "seq"
-                random_start = torch.randint(0, self.length - 1 - self.batch_size, (1,))[0]
-                starts[-1] = random_start
-
-            indices = starts[:, None] + torch.arange(0, self.batch_size)
-
-        return iter(indices.tolist())
+        if self.shuffle_mode == "random":
+            return iter(self._random_shuffle().tolist())
+        elif self.shuffle_mode == "seq":
+            return iter(self._sequential_shuffle().tolist())
+        else:
+            return iter(self._no_shuffle().tolist())
 
     def __len__(self):
         if self.drop_last:
             return self.length // self.batch_size
         else:
             return (self.length + self.batch_size - 1) // self.batch_size
+
+    def _calculate_total_batches(self):
+        total_batches = self.length // self.batch_size
+        if self.length % self.batch_size != 0 and self.drop_last:
+            total_batches -= 1
+        return total_batches
+
+    # Helper functions for shuffling indices
+    # Fully random shuffle
+    def _random_shuffle(self):
+        shuffled_indices = self.indices[torch.randperm(self.length)]
+        total_batches = self._calculate_total_batches()
+        batched_indices = shuffled_indices[:total_batches * self.batch_size].view(total_batches,
+                                                                                  self.batch_size)
+        return batched_indices
+
+    # sliding window shuffle wiht a random start
+    def _sequential_shuffle(self):
+        random_starts = torch.randint(0, self.length - self.batch_size,
+                                      size=(self.length // self.batch_size,))
+        batched_indices = torch.stack(
+            [self.indices[start: start + self.batch_size] for start in random_starts])
+        return batched_indices
+
+    def _no_shuffle(self):
+        total_batches = self._calculate_total_batches()
+        batched_indices = torch.stack([self.indices[i: i + self.batch_size] for i in
+                                       range(0, total_batches * self.batch_size, self.batch_size)])
+        return batched_indices
 
 
 
@@ -175,7 +201,8 @@ class PilarDatasetHDF5Dense(torch.utils.data.Dataset):
                  transform=None,
                  include_feats=False,
                  segment=False,
-                 image_size=(512,512,512),
+                 projection=True,
+                 image_size=(512,512),
                  target_transform=None):
         super(PilarDatasetHDF5Dense, self).__init__()
 
@@ -198,7 +225,7 @@ class PilarDatasetHDF5Dense(torch.utils.data.Dataset):
         self.include_feats = include_feats
         self.image_size = image_size
         self.crop = crop
-        self.STF = SparseToFull(image_size)
+        self.STF = SparseToFull(projection, image_size)
 
     def __getitem__(self, index):
         start, end = int(self.dset_references["start_indices"][index]), int(self.dset_references["end_indices"][index])
@@ -286,7 +313,7 @@ if __name__ == "__main__":
     if sparse:
         train_dataset = PilarDatasetHDF5(dataset_location, include_feats=include_feats, segment=segment)
         batch_size = 8
-        sampler = HDF5Sampler(dataset_location, batch_size=batch_size, shuffle="random")
+        sampler = HDF5Sampler(train_dataset, batch_size=batch_size, shuffle_mode="random")
         loader = torch.utils.data.DataLoader(dataset=train_dataset,
                                              batch_sampler=sampler,
                                              collate_fn=sparse_collate_fn_custom,
@@ -355,7 +382,7 @@ if __name__ == "__main__":
     else:
         train_dataset = PilarDatasetHDF5Dense(dataset_location, include_feats=include_feats)
         batch_size = 8
-        sampler = HDF5Sampler(dataset_location, batch_size=batch_size, shuffle="random")
+        sampler = HDF5Sampler(train_dataset, batch_size=batch_size, shuffle_mode="random", target_label=2212)
         loader = torch.utils.data.DataLoader(dataset=train_dataset,
                                              batch_sampler=sampler,
                                              num_workers=1,
